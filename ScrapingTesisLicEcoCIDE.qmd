@@ -1,0 +1,494 @@
+---
+author: "Alejandro Romero González"
+title: "Scraping de Tesis de Licenciatura en Economía del repositorio oficial del CIDE"
+affiliation: "Banco de México"
+---
+
+```{r}
+library(rvest)
+library(dplyr)
+library(purrr)
+library(stringr)
+library(tibble)
+library(xml2)
+library(writexl)
+library(arrow)
+```
+
+# Primero, extraeremos los links de todas las tesis
+```{r}
+# Raíz del sitio y base de la paginación
+root_url  <- "https://repositorio-digital.cide.edu"
+base_list <- "https://repositorio-digital.cide.edu/handle/11651/15/recent-submissions?offset="
+
+# Sabemos que hay 462 tesis, 20 por página = 24 páginas -> offsets de 0 a 460
+offsets <- seq(0, 460, by = 20)
+
+# Función para extraer la información
+get_links_from_page <- function(offset) {
+  url <- paste0(base_list, offset)
+  message("Leyendo offset = ", offset, " | ", url)
+
+  page <- read_html(url)
+
+  # Títulos y hrefs
+  nodes_titulos <- page %>% html_elements("a.item-text.text-justify")
+  # Tabla para extraer el año y el autor
+  tabla <- page %>% html_table()
+  años <- as.integer(stringr::str_sub(tabla[[1]]$X1, start = 1, end = 4))
+  nombres <- stringr::str_squish(tabla[[1]]$X3)
+
+  tibble(
+    año    = años,
+    author = nombres,
+    title  = nodes_titulos %>% html_text2(),
+    href   = nodes_titulos %>% html_attr("href"),
+    url    = paste0(root_url, href),
+    offset = offset
+  )
+}
+
+# Aplicar a todos los offsets y juntar en un solo data frame
+tesis_links <- map_dfr(offsets, get_links_from_page)
+
+tesis_links <- tesis_links %>%
+  mutate(title  = stringr::str_squish(title))
+```
+
+```{r}
+get_meta_from_tesis <- function(url) {
+  url_meta <- paste0(url, "?show=full")
+  message("Leyendo metadatos: ", url_meta)
+
+  page <- read_html(url_meta)
+
+  # Filas de la tabla de metadatos
+  rows <- page %>%
+    html_elements("table.ds-includeSet-table.detailtable tr")
+
+  # Si por alguna razón no encontramos la tabla, regresamos NA's
+  if (length(rows) == 0) {
+    return(tibble(
+      url          = url,
+      titulo_meta  = NA_character_,
+      año_pub_meta = NA_integer_,
+      autor_meta   = NA_character_,
+      idioma       = NA_character_,
+      tipo_acceso  = NA_character_,
+      resumen      = NA_character_,
+      asesor       = NA_character_
+    ))
+  }
+
+  labels <- rows %>%
+    html_element("td.label-cell") %>%
+    html_text2()
+
+  values <- rows %>%
+    html_element("td.word-break") %>%
+    html_text2()
+
+  meta <- tibble(label = labels, value = values)
+
+  get_val <- function(code) {
+    vals <- meta %>%
+      filter(label == code) %>%
+      pull(value)
+
+    if (length(vals) == 0) return(NA_character_)
+    
+    stringr::str_squish(vals)
+  }
+
+  tibble(
+    url          = url,
+    # 1. Título de la tesis
+    titulo_meta  = get_val("dc.title"),
+    # 2. Año de publicación
+    año_pub_meta = suppressWarnings(as.integer(get_val("dc.date.issued"))),
+    # 3. Autor/a
+    autor_meta   = get_val("dc.creator"),
+    # 4. Idioma
+    idioma       = get_val("dc.language.iso"),
+    # 5. Tipo de acceso
+    tipo_acceso  = get_val("dc.accessrights"),
+    # 6. Resumen
+    resumen      = get_val("dc.description.abstract"),
+    # 7. Asesor/a
+    asesor       = get_val("dc.contributor.advisor")
+  )
+}
+```
+
+```{r}
+safe_get_meta <- safely(get_meta_from_tesis)
+
+raw_meta <- map(tesis_links$url, safe_get_meta)
+
+# Extraer sólo los resultados exitosos
+tesis_meta_segura <- raw_meta %>%
+  map("result") %>%
+  compact() %>% 
+  bind_rows()
+
+tesis_meta_unica <- tesis_meta_segura %>% 
+  group_by(across(-autor_meta)) %>%
+  summarise(
+    autor_meta = {
+      autores <- unique(autor_meta)
+      
+      # Si todos son NA, dejamos NA
+      if (all(is.na(autores))) {
+        NA_character_
+      } else {
+        # Quitamos NA y pegamos nombres con " y "
+        paste(autores[!is.na(autores)], collapse = " y ")
+      }
+    },
+    .groups = "drop"
+  )
+```
+
+```{r}
+tesis_meta_unica <- tesis_meta_unica %>%
+  mutate(
+    asesor_unificado = case_when(
+      # Mantener explícitamente los NA
+      is.na(asesor) ~ NA_character_,
+
+      # --- Fausto Hernández Trillo ---
+      asesor %in% c(
+        "Dr. Fausto Hernández Trillo",
+        "Dr. Fausto Hernández-Trillo"
+      ) ~ "Dr. Fausto Hernández Trillo",
+
+      # --- Daniel Ventosa-Santaulària ---
+      asesor %in% c(
+        "Dr. Daniel Ventosa-Santaulària",
+        "Dr. Daniel Ventosa Santaulària",
+        "Dr. Daniel Ventosa- Santaulària",
+        "Dr. Daniel Ventosa-Santaulária"
+      ) ~ "Dr. Daniel Ventosa-Santaulària",
+
+      # --- Rodolfo Cermeño Bazán (solo casos simples, sin co-asesores) ---
+      asesor %in% c(
+        "Dr. Rodolfo Cermeño Bazán",
+        "Dr. Rodolfo Sócrates Cermeño Bazán",
+        "Rodolfo Cermeño Bazán",
+        "Dr. Rodolfo Cermeño",
+        "Dr. Rodolfo Cermeño Bazan",
+        "Dr. Rodolfo S. Cermeño Bazán",
+        "Mtro. Rodolfo Cermeño Bazán"
+      ) ~ "Dr. Rodolfo Cermeño Bazán",
+
+      # --- Alejandro Villagómez Amezcua ---
+      asesor %in% c(
+        "Dr. Alejandro Villagómez Amezcua",
+        "Alejandro Villagómez Amezcua",
+        "Dr. Alejandro Villagómez",
+        "Dr. F. Alejandro Villagomez Amezcua",
+        "Dr. F. Alejandro Villagómez Amezcua",
+        "Dr. Francisco Alejandro Villagómez Amezcua",
+        "Dr. Francisco Alejandro Villagómez Amezcua Manjarrez",
+        "Dr. Francisco Alejandro Villagómez Amezcua-Manjarrez",
+        "Francisco Alejandro Villagómez Amezcua"
+      ) ~ "Dr. Alejandro Villagómez Amezcua",
+
+      # --- Alexander Elbittar Hein ---
+      asesor %in% c(
+        "Dr. Alexander Elbittar Hein",
+        "Dr. Alexander Elbittar",
+        "Dr. Alberto Alexander Elbittar Hein",
+        "Dr. Alexander Alberto Elbittar Hein"
+      ) ~ "Dr. Alexander Elbittar Hein",
+      
+      # --- Francisco Javier Cabrera Hernández ---
+      asesor %in% c(
+        "Dr. Francisco Javier Cabrera–Hernández",
+        "Dr. Francisco Cabrera Hernández",
+        "Dr. Francisco Cabrera-Hernández"
+      ) ~ "Dr. Francisco Javier Cabrera Hernández",
+      
+      # --- Enrique Félix Garza Escalante ---
+      asesor %in% c(
+        "Dr. Enrique Félix Garza Escalante",
+        "Dr. Enrique Garza Escalante"
+      ) ~ "Dr. Enrique Félix Garza Escalante",
+
+      # --- Víctor Gerardo Carreón Rodríguez ---
+      asesor %in% c(
+        "Dr. Víctor Gerardo Carreón Rodríguez",
+        "Dr. Víctor G. Carreón Rodríguez",
+        "Víctor Gerardo Carreón Rodríguez",
+        "Dr. Victor Gerardo Carreón Rodríguez",
+        "Dr. Víctor Carreón Rodríguez",
+        "Dr. Víctor G. Carreón Rodríguez.",
+        "Victor Gerardo Carreón Rodríguez",
+        "Víctor Carreón Rodríguez"
+      ) ~ "Dr. Víctor Gerardo Carreón Rodríguez",
+
+      # --- Gustavo A. del Ángel Mobarak ---
+      asesor %in% c(
+        "Dr. Gustavo A. del Ángel Mobarak",
+        "Dr. Gustavo Adolfo del Ángel Mobarak",
+        "Dr. Gustavo del Ángel Mobarak",
+        "Dr. Gustavo A. Del Ángel Mobarak",
+        "Dr. Gustavo del Ángel Movarak",
+        "Gustavo A. Del Angel Mobarak",
+        "Gustavo Adolfo del Ángel Mobarak",
+        "Gustavo A. Del Angel Mobarak"
+      ) ~ "Dr. Gustavo A. del Ángel Mobarak",
+
+      # --- John Scott Andretta  ---
+      asesor %in% c(
+        "Dr. John Scott Andretta",
+        "Mtro. John Roberto Scott Andretta",
+        "John Roberto Scott Andretta"
+      ) ~ "Dr. John Roberto Scott Andretta",
+      
+      # --- Carlos Jaime Bazdresch Parada  ---
+      asesor %in% c(
+        "Mtro. Carlos Jaime Bazdresch Parada",
+        "Mtro. Carlos Bazdresch Parada"
+      ) ~ "Mtro. Carlos Jaime Bazdresch Parada",
+      
+      # --- Kaniska Dam  ---
+      asesor %in% c(
+        "PH.D. Kaniska Dam",
+        "Dr. Kaniska Dam"
+      ) ~ "Dr. Kaniska Dam",
+      
+      # --- Edwin Salim Tapia Alvarado  ---
+      asesor %in% c(
+        "M.E. Edwin Salim Tapia Alvarado",
+        "Mtro. Edwin Salim Tapia Alvarado"
+      ) ~ "Mtro. Edwin Salim Tapia Alvarado",
+      
+      # --- Antonio Jimenez Martínez  ---
+      asesor %in% c(
+        "Dr. Antonio Jimenez Martínez",
+        "Dr. Antonio Jiménez Martínez",
+        "Antonio Jiménez Martínez"
+      ) ~ "Dr. Antonio Jiménez Martínez",
+      
+      # --- Ericka Gabriela Rascón Ramírez  ---
+      asesor %in% c(
+        "Dra. Ericka Gabriela Rascón Ramírez",
+        "Dra. Ericka Rascón Ramírez",
+        "Doctora Ericka Gabriela Rascón Ramírez"
+      ) ~ "Dra. Ericka Gabriela Rascón Ramírez",
+      
+      # --- Juan Manuel Torres Rojo ---
+      asesor %in% c(
+        "Dr. Juan Manuel Torres Rojo",
+        "Juan Manuel Torres Rojo"
+      ) ~ "Dr. Juan Manuel Torres Rojo",
+      
+      # --- Luis Napoleón Rubalcava Peñafiel ---
+      asesor %in% c(
+        "Luis N. Rubalcava Peñafiel",
+        "Dr. Luis Napoleón Rubalcava Peñafiel"
+      ) ~ "Dr. Luis Napoleón Rubalcava Peñafiel",
+
+      # --- Kurt Unger Rubín ---
+      asesor %in% c(
+        "Dr. Kurt Unger Rubín",
+        "Dr. Kurt Unger Rubin",
+        "Dr. Kurt Unger",
+        "Kurt Unger Rubin",
+        "Dr Kurt Unger Rubin",
+        "Dr. Kurt Unger Rubí",
+        "Kurt Unger Rubín"
+      ) ~ "Dr. Kurt Unger Rubín",
+
+      # --- Rubén Irvin Rojas Valdés ---
+      asesor %in% c(
+        "Dr. Rubén Irvin Rojas Valdés",
+        "Dr. Rubén Irvin Rojas",
+        "Dr. Rubén Irvin Rojas Valdez"
+      ) ~ "Dr. Rubén Irvin Rojas Valdés",
+
+      # --- Eva Arceo Gómez ---
+      asesor %in% c(
+        "Dra. Eva Olimpia Arceo Gómez",
+        "Dra. Eva O. Arceo-Gómez",
+        "Dra. Eva O. Arceo Gómez",
+        "Dra. Eva Olimpia Arceo-Gómez",
+        "Eva Arceo Gómez"
+      ) ~ "Dra. Eva Olimpia Arceo Gómez",
+
+      # --- Susan Parker ---
+      asesor %in% c(
+        "Dra. Susan W. Parker",
+        "Dra. Susan Parker",
+        "Dra. Susan Wendy Parker",
+        "Susan Wendy Parker"
+      ) ~ "Dra. Susan W. Parker",
+
+      # --- Fernanda Márquez Padilla Casar ---
+      asesor %in% c(
+        "Dra. Fernanda Márquez Padilla Casar",
+        "Dra. Fernanda Márquez-Padilla Casar",
+        "Dra. Fernanda Márquez Padilla"
+      ) ~ "Dra. Fernanda Márquez Padilla Casar",
+      
+      # --- Emmanuel Salvador Chávez Jiménez ---
+      asesor %in% c(
+        "Dr. Emmanuel Salvador Chávez Jiménez",
+        "Emmanuel Salvador Chávez Jiménez"
+      ) ~ "Dr. Emmanuel Salvador Chávez Jiménez",
+      
+      # --- Benjamín Oliva Vázquez ---
+      asesor %in% c(
+        "Mtro. Benjamín Oliva Vázquez",
+        "Prof. Benjamin Oliva Vázquez"
+      ) ~ "Mtro. Benjamín Oliva Vázquez",
+
+      # --- Luciana Cecilia Moscoso Boedo ---
+      asesor %in% c(
+        "Dra. Luciana Cecilia Moscoso Boedo",
+        "Dr. Luciana Cecilia Moscoso Boedo",
+        "Dra. Luciana Cecilia Mocoso Boedo",
+        "Ph. D. Luciana Moscoso Boedo"
+      ) ~ "Dra. Luciana Cecilia Moscoso Boedo",
+
+      # --- Luz Marina Arias ---
+      asesor %in% c(
+        "Dra. Luz Marina Arias",
+        "Dra. Luz Marina Arias López-Montes",
+        "Dra. Luz Marina Arias López Montes"
+      ) ~ "Dra. Luz Marina Arias López Montes",
+
+      # --- Sonia Di Giannatale ---
+      asesor %in% c(
+        "Dra. Sonia Beatriz Di Giannatale Menegalli",
+        "Dra. Sonia Di Giannatale Menegalli",
+        "Dra. Sonia Digiannatale",
+        "Dra. Sonia María Beatriz Di Giannatale Menegalli",
+        "Dr. Sonia Di Giannatale"
+      ) ~ "Dra. Sonia Beatriz Di Giannatale Menegalli",
+
+      # --- David Arie Mayer Foulkes ---
+      asesor %in% c(
+        "Dr. David Arie Mayer Foulkes",
+        "Dr. David Mayer Foulkes",
+        "David A. Mayer Foulkes",
+        "Dr. David A. Mayer Foulkes",
+        "David Arie Mayer Foulkes",
+        "Dr. David Mayer-Foulkes",
+        "David Mayer-Foulkes",
+        "Dr. David A. Mayer-Foulkes",
+        "David Mayer-Foulkes"
+      ) ~ "Dr. David Arie Mayer Foulkes",
+
+      # --- David Heres del Valle ---
+      asesor %in% c(
+        "Dr. David Ricardo Heres del Valle",
+        "Dr. David R. Heres del Valle"
+      ) ~ "Dr. David Ricardo Heres del Valle",
+
+      # --- Juan de Dios Enrique Rosellón Díaz ---
+      asesor %in% c(
+        "Dr. Juan de Dios Enrique Rosellón Díaz",
+        "Juan de Dios Enrique Rosellón Díaz",
+        "Dr. Juan Rosellón",
+        "Dr. Juan Rosellón Díaz",
+        "Dr. Juan de Dios E. Rosellón Díaz"
+      ) ~ "Dr. Juan de Dios Enrique Rosellón Díaz",
+
+      # --- Marcelo Delajara ---
+      asesor %in% c(
+        "Dr. Marcelo Delajara",
+        "Dr. Marcelo Delajara Romano",
+        "Dr. Jaime Marcelo Delajara Romano",
+        "Marcelo Delajara"
+      ) ~ "Dr. Marcelo Delajara Romano",
+
+      # --- Gonzalo Castañeda ---
+      asesor %in% c(
+        "Dr. Gonzalo Castañeda Ramos",
+        "Dr. Gonzalo Alberto Castañeda Ramos",
+        "Dr. Gonzalo Alberto Castañeda"
+      ) ~ "Dr. Gonzalo Castañeda Ramos",
+      
+      # --- Hernán Daniel Bejarano ---
+      asesor %in% c(
+        "Dr. Hernán Daniel Bejarano",
+        "Dr. Hernán Bejarano"
+      ) ~ "Dr. Hernán Daniel Bejarano",
+      
+      # --- Mateo Hoyos López ---
+      asesor %in% c(
+        "Dr. Mateo Hoyos López",
+        "Dr. Mateo Hoyos"
+      ) ~ "Dr. Mateo Hoyos López",
+      
+      # --- Pedro Ignacio Hancevic ---
+      asesor %in% c(
+        "Dr. Pedro Ignacio Hancevic",
+        "Dr. Pedro Hancevic"
+      ) ~ "Dr. Pedro Ignacio Hancevic",
+      
+      # --- Raúl Aníbal Feliz Ortiz ---
+      asesor %in% c(
+        "Dr. Raúl Aníbal Feliz Ortiz",
+        "Mtro. Raúl A. Feliz",
+        "Mtro. Raúl A. Feliz Ortiz",
+        "Mtro. Raúl Aníbal Feliz Ortiz",
+        "Mtro. Raúl Aníbal Feliz Ortíz",
+        "Raúl A. Feliz",
+        "Raúl A. Feliz Ortiz"
+      ) ~ "Mtro. Raúl Aníbal Feliz Ortiz",
+      
+      # --- Mauricio Fernández Duque ---
+      asesor %in% c(
+        "Dr. Mauricio Fernández Duque",
+        "Dr. Mauricio Fernandez Duque"
+      ) ~ "Dr. Mauricio Fernández Duque",
+
+      # --- Alejandro López-Feldman ---
+      asesor %in% c(
+        "Dr. Alejandro López-Feldman",
+        "Dr. Alejandro José López-Feldman",
+        "Dr. Alejandro José López Feldman",
+        "Dr. Alejandro López Feldman",
+        "Dr. Alejandro J. López-Feldman",
+        "Doctor Alejandro José López Feldman"
+      ) ~ "Dr. Alejandro José López Feldman",
+
+      # --- Alfonso Miranda ---
+      asesor %in% c(
+        "Alfonso Miranda",
+        "Dr. Alfonso Miranda Caso Luengo",
+        "Dr. Alfonso Miranda Caso"
+      ) ~ "Dr. Alfonso Miranda Caso",
+      
+      asesor == "Dr. Rodolfo Cermeño Bazán y David Mayer Foulkes" ~ "Dr. Rodolfo Cermeño Bazán y Dr. David Arie Mayer Foulkes",
+
+      # Default: dejar como viene
+      TRUE ~ asesor
+    )
+  )
+```
+
+
+Finalmente, exportamos los datos obtenidos
+```{r}
+tesis_meta_unica <- tesis_meta_unica %>%
+  rename(
+    titulo = titulo_meta,
+    año_pub = año_pub_meta,
+    autorx = autor_meta
+  )
+
+tesis_meta_unica <- tesis_meta_unica %>%
+  select(año_pub, autorx, titulo, resumen, asesor, 
+         asesor_unificado, idioma, tipo_acceso, url)
+
+tesis_meta_unica <- tesis_meta_unica %>%
+  arrange(año_pub)
+
+write.csv(tesis_meta_unica, "tesis_lic_economia_cide.csv", row.names = FALSE)
+write_xlsx(tesis_meta_unica, "tesis_lic_economia_cide.xlsx", col_names = TRUE, format_headers = TRUE)
+write_parquet(tesis_meta_unica, "tesis_lic_economia_cide.parquet")
+```
