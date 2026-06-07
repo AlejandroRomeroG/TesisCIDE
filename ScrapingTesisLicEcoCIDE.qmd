@@ -5,6 +5,8 @@ affiliation: "Banco de México"
 ---
 
 ```{r}
+try(Sys.setlocale("LC_CTYPE", "en_US.UTF-8"), silent = TRUE)
+
 library(rvest)
 library(dplyr)
 library(purrr)
@@ -194,325 +196,58 @@ tesis_meta_unica <- tesis_meta_segura %>%
 ```
 
 ```{r}
-tesis_meta_unica <- tesis_meta_unica %>%
-  mutate(
-    asesor_unificado = case_when(
-      # Mantener explícitamente los NA
-      is.na(asesor) ~ NA_character_,
+advisor_alias_path <- "data-raw/asesores_alias.csv"
+required_alias_cols <- c("advisor_raw", "advisor_canonical")
 
-      # --- Fausto Hernández Trillo ---
-      asesor %in% c(
-        "Dr. Fausto Hernández Trillo",
-        "Dr. Fausto Hernández-Trillo"
-      ) ~ "Dr. Fausto Hernández Trillo",
+if (!file.exists(advisor_alias_path)) {
+  stop("No se encontró la tabla de alias de asesores: ", advisor_alias_path)
+}
 
-      # --- Daniel Ventosa-Santaulària ---
-      asesor %in% c(
-        "Dr. Daniel Ventosa-Santaulària",
-        "Dr. Daniel Ventosa Santaulària",
-        "Dr. Daniel Ventosa- Santaulària",
-        "Dr. Daniel Ventosa-Santaulária"
-      ) ~ "Dr. Daniel Ventosa-Santaulària",
+advisor_aliases <- read.csv(
+  advisor_alias_path,
+  stringsAsFactors = FALSE,
+  fileEncoding = "UTF-8",
+  check.names = FALSE
+) %>%
+  as_tibble()
 
-      # --- Rodolfo Cermeño Bazán (solo casos simples, sin co-asesores) ---
-      asesor %in% c(
-        "Dr. Rodolfo Cermeño Bazán",
-        "Dr. Rodolfo Sócrates Cermeño Bazán",
-        "Rodolfo Cermeño Bazán",
-        "Dr. Rodolfo Cermeño",
-        "Dr. Rodolfo Cermeño Bazan",
-        "Dr. Rodolfo S. Cermeño Bazán",
-        "Mtro. Rodolfo Cermeño Bazán"
-      ) ~ "Dr. Rodolfo Cermeño Bazán",
+missing_alias_cols <- setdiff(required_alias_cols, names(advisor_aliases))
+if (length(missing_alias_cols) > 0) {
+  stop("Faltan columnas en la tabla de alias: ", paste(missing_alias_cols, collapse = ", "))
+}
 
-      # --- Alejandro Villagómez Amezcua ---
-      asesor %in% c(
-        "Dr. Alejandro Villagómez Amezcua",
-        "Alejandro Villagómez Amezcua",
-        "Dr. Alejandro Villagómez",
-        "Dr. F. Alejandro Villagomez Amezcua",
-        "Dr. F. Alejandro Villagómez Amezcua",
-        "Dr. Francisco Alejandro Villagómez Amezcua",
-        "Dr. Francisco Alejandro Villagómez Amezcua Manjarrez",
-        "Dr. Francisco Alejandro Villagómez Amezcua-Manjarrez",
-        "Francisco Alejandro Villagómez Amezcua"
-      ) ~ "Dr. Alejandro Villagómez Amezcua",
+advisor_aliases <- advisor_aliases %>%
+  mutate(across(all_of(required_alias_cols), str_squish)) %>%
+  filter(advisor_raw != "", advisor_canonical != "")
 
-      # --- Alexander Elbittar Hein ---
-      asesor %in% c(
-        "Dr. Alexander Elbittar Hein",
-        "Dr. Alexander Elbittar",
-        "Dr. Alberto Alexander Elbittar Hein",
-        "Dr. Alexander Alberto Elbittar Hein"
-      ) ~ "Dr. Alexander Elbittar Hein",
-      
-      # --- Francisco Javier Cabrera Hernández ---
-      asesor %in% c(
-        "Dr. Francisco Javier Cabrera–Hernández",
-        "Dr. Francisco Cabrera Hernández",
-        "Dr. Francisco Cabrera-Hernández"
-      ) ~ "Dr. Francisco Javier Cabrera Hernández",
-      
-      # --- Enrique Félix Garza Escalante ---
-      asesor %in% c(
-        "Dr. Enrique Félix Garza Escalante",
-        "Dr. Enrique Garza Escalante"
-      ) ~ "Dr. Enrique Félix Garza Escalante",
+conflicting_aliases <- advisor_aliases %>%
+  distinct(advisor_raw, advisor_canonical) %>%
+  count(advisor_raw, name = "n_canonicals") %>%
+  filter(n_canonicals > 1)
 
-      # --- Víctor Gerardo Carreón Rodríguez ---
-      asesor %in% c(
-        "Dr. Víctor Gerardo Carreón Rodríguez",
-        "Dr. Víctor G. Carreón Rodríguez",
-        "Víctor Gerardo Carreón Rodríguez",
-        "Dr. Victor Gerardo Carreón Rodríguez",
-        "Dr. Víctor Carreón Rodríguez",
-        "Dr. Víctor G. Carreón Rodríguez.",
-        "Victor Gerardo Carreón Rodríguez",
-        "Víctor Carreón Rodríguez"
-      ) ~ "Dr. Víctor Gerardo Carreón Rodríguez",
-
-      # --- Gustavo A. del Ángel Mobarak ---
-      asesor %in% c(
-        "Dr. Gustavo A. del Ángel Mobarak",
-        "Dr. Gustavo Adolfo del Ángel Mobarak",
-        "Dr. Gustavo del Ángel Mobarak",
-        "Dr. Gustavo A. Del Ángel Mobarak",
-        "Dr. Gustavo del Ángel Movarak",
-        "Gustavo A. Del Angel Mobarak",
-        "Gustavo Adolfo del Ángel Mobarak",
-        "Gustavo A. Del Angel Mobarak"
-      ) ~ "Dr. Gustavo A. del Ángel Mobarak",
-
-      # --- John Scott Andretta  ---
-      asesor %in% c(
-        "Dr. John Scott Andretta",
-        "Mtro. John Roberto Scott Andretta",
-        "John Roberto Scott Andretta"
-      ) ~ "Dr. John Roberto Scott Andretta",
-      
-      # --- Carlos Jaime Bazdresch Parada  ---
-      asesor %in% c(
-        "Mtro. Carlos Jaime Bazdresch Parada",
-        "Mtro. Carlos Bazdresch Parada"
-      ) ~ "Mtro. Carlos Jaime Bazdresch Parada",
-      
-      # --- Kaniska Dam  ---
-      asesor %in% c(
-        "PH.D. Kaniska Dam",
-        "Dr. Kaniska Dam"
-      ) ~ "Dr. Kaniska Dam",
-      
-      # --- Edwin Salim Tapia Alvarado  ---
-      asesor %in% c(
-        "M.E. Edwin Salim Tapia Alvarado",
-        "Mtro. Edwin Salim Tapia Alvarado"
-      ) ~ "Mtro. Edwin Salim Tapia Alvarado",
-      
-      # --- Antonio Jimenez Martínez  ---
-      asesor %in% c(
-        "Dr. Antonio Jimenez Martínez",
-        "Dr. Antonio Jiménez Martínez",
-        "Antonio Jiménez Martínez"
-      ) ~ "Dr. Antonio Jiménez Martínez",
-      
-      # --- Ericka Gabriela Rascón Ramírez  ---
-      asesor %in% c(
-        "Dra. Ericka Gabriela Rascón Ramírez",
-        "Dra. Ericka Rascón Ramírez",
-        "Doctora Ericka Gabriela Rascón Ramírez"
-      ) ~ "Dra. Ericka Gabriela Rascón Ramírez",
-      
-      # --- Juan Manuel Torres Rojo ---
-      asesor %in% c(
-        "Dr. Juan Manuel Torres Rojo",
-        "Juan Manuel Torres Rojo"
-      ) ~ "Dr. Juan Manuel Torres Rojo",
-      
-      # --- Luis Napoleón Rubalcava Peñafiel ---
-      asesor %in% c(
-        "Luis N. Rubalcava Peñafiel",
-        "Dr. Luis Napoleón Rubalcava Peñafiel"
-      ) ~ "Dr. Luis Napoleón Rubalcava Peñafiel",
-
-      # --- Kurt Unger Rubín ---
-      asesor %in% c(
-        "Dr. Kurt Unger Rubín",
-        "Dr. Kurt Unger Rubin",
-        "Dr. Kurt Unger",
-        "Kurt Unger Rubin",
-        "Dr Kurt Unger Rubin",
-        "Dr. Kurt Unger Rubí",
-        "Kurt Unger Rubín"
-      ) ~ "Dr. Kurt Unger Rubín",
-
-      # --- Rubén Irvin Rojas Valdés ---
-      asesor %in% c(
-        "Dr. Rubén Irvin Rojas Valdés",
-        "Dr. Rubén Irvin Rojas",
-        "Dr. Rubén Irvin Rojas Valdez"
-      ) ~ "Dr. Rubén Irvin Rojas Valdés",
-
-      # --- Eva Arceo Gómez ---
-      asesor %in% c(
-        "Dra. Eva Olimpia Arceo Gómez",
-        "Dra. Eva O. Arceo-Gómez",
-        "Dra. Eva O. Arceo Gómez",
-        "Dra. Eva Olimpia Arceo-Gómez",
-        "Eva Arceo Gómez"
-      ) ~ "Dra. Eva Olimpia Arceo Gómez",
-
-      # --- Susan Parker ---
-      asesor %in% c(
-        "Dra. Susan W. Parker",
-        "Dra. Susan Parker",
-        "Dra. Susan Wendy Parker",
-        "Susan Wendy Parker"
-      ) ~ "Dra. Susan W. Parker",
-
-      # --- Fernanda Márquez Padilla Casar ---
-      asesor %in% c(
-        "Dra. Fernanda Márquez Padilla Casar",
-        "Dra. Fernanda Márquez-Padilla Casar",
-        "Dra. Fernanda Márquez Padilla"
-      ) ~ "Dra. Fernanda Márquez Padilla Casar",
-      
-      # --- Emmanuel Salvador Chávez Jiménez ---
-      asesor %in% c(
-        "Dr. Emmanuel Salvador Chávez Jiménez",
-        "Emmanuel Salvador Chávez Jiménez"
-      ) ~ "Dr. Emmanuel Salvador Chávez Jiménez",
-      
-      # --- Benjamín Oliva Vázquez ---
-      asesor %in% c(
-        "Mtro. Benjamín Oliva Vázquez",
-        "Prof. Benjamin Oliva Vázquez"
-      ) ~ "Mtro. Benjamín Oliva Vázquez",
-
-      # --- Luciana Cecilia Moscoso Boedo ---
-      asesor %in% c(
-        "Dra. Luciana Cecilia Moscoso Boedo",
-        "Dr. Luciana Cecilia Moscoso Boedo",
-        "Dra. Luciana Cecilia Mocoso Boedo",
-        "Ph. D. Luciana Moscoso Boedo"
-      ) ~ "Dra. Luciana Cecilia Moscoso Boedo",
-
-      # --- Luz Marina Arias ---
-      asesor %in% c(
-        "Dra. Luz Marina Arias",
-        "Dra. Luz Marina Arias López-Montes",
-        "Dra. Luz Marina Arias López Montes"
-      ) ~ "Dra. Luz Marina Arias López Montes",
-
-      # --- Sonia Di Giannatale ---
-      asesor %in% c(
-        "Dra. Sonia Beatriz Di Giannatale Menegalli",
-        "Dra. Sonia Di Giannatale Menegalli",
-        "Dra. Sonia Digiannatale",
-        "Dra. Sonia María Beatriz Di Giannatale Menegalli",
-        "Dr. Sonia Di Giannatale"
-      ) ~ "Dra. Sonia Beatriz Di Giannatale Menegalli",
-
-      # --- David Arie Mayer Foulkes ---
-      asesor %in% c(
-        "Dr. David Arie Mayer Foulkes",
-        "Dr. David Mayer Foulkes",
-        "David A. Mayer Foulkes",
-        "Dr. David A. Mayer Foulkes",
-        "David Arie Mayer Foulkes",
-        "Dr. David Mayer-Foulkes",
-        "David Mayer-Foulkes",
-        "Dr. David A. Mayer-Foulkes",
-        "David Mayer-Foulkes"
-      ) ~ "Dr. David Arie Mayer Foulkes",
-
-      # --- David Heres del Valle ---
-      asesor %in% c(
-        "Dr. David Ricardo Heres del Valle",
-        "Dr. David R. Heres del Valle"
-      ) ~ "Dr. David Ricardo Heres del Valle",
-
-      # --- Juan de Dios Enrique Rosellón Díaz ---
-      asesor %in% c(
-        "Dr. Juan de Dios Enrique Rosellón Díaz",
-        "Juan de Dios Enrique Rosellón Díaz",
-        "Dr. Juan Rosellón",
-        "Dr. Juan Rosellón Díaz",
-        "Dr. Juan de Dios E. Rosellón Díaz"
-      ) ~ "Dr. Juan de Dios Enrique Rosellón Díaz",
-
-      # --- Marcelo Delajara ---
-      asesor %in% c(
-        "Dr. Marcelo Delajara",
-        "Dr. Marcelo Delajara Romano",
-        "Dr. Jaime Marcelo Delajara Romano",
-        "Marcelo Delajara"
-      ) ~ "Dr. Marcelo Delajara Romano",
-
-      # --- Gonzalo Castañeda ---
-      asesor %in% c(
-        "Dr. Gonzalo Castañeda Ramos",
-        "Dr. Gonzalo Alberto Castañeda Ramos",
-        "Dr. Gonzalo Alberto Castañeda"
-      ) ~ "Dr. Gonzalo Castañeda Ramos",
-      
-      # --- Hernán Daniel Bejarano ---
-      asesor %in% c(
-        "Dr. Hernán Daniel Bejarano",
-        "Dr. Hernán Bejarano"
-      ) ~ "Dr. Hernán Daniel Bejarano",
-      
-      # --- Mateo Hoyos López ---
-      asesor %in% c(
-        "Dr. Mateo Hoyos López",
-        "Dr. Mateo Hoyos"
-      ) ~ "Dr. Mateo Hoyos López",
-      
-      # --- Pedro Ignacio Hancevic ---
-      asesor %in% c(
-        "Dr. Pedro Ignacio Hancevic",
-        "Dr. Pedro Hancevic"
-      ) ~ "Dr. Pedro Ignacio Hancevic",
-      
-      # --- Raúl Aníbal Feliz Ortiz ---
-      asesor %in% c(
-        "Dr. Raúl Aníbal Feliz Ortiz",
-        "Mtro. Raúl A. Feliz",
-        "Mtro. Raúl A. Feliz Ortiz",
-        "Mtro. Raúl Aníbal Feliz Ortiz",
-        "Mtro. Raúl Aníbal Feliz Ortíz",
-        "Raúl A. Feliz",
-        "Raúl A. Feliz Ortiz"
-      ) ~ "Mtro. Raúl Aníbal Feliz Ortiz",
-      
-      # --- Mauricio Fernández Duque ---
-      asesor %in% c(
-        "Dr. Mauricio Fernández Duque",
-        "Dr. Mauricio Fernandez Duque"
-      ) ~ "Dr. Mauricio Fernández Duque",
-
-      # --- Alejandro López-Feldman ---
-      asesor %in% c(
-        "Dr. Alejandro López-Feldman",
-        "Dr. Alejandro José López-Feldman",
-        "Dr. Alejandro José López Feldman",
-        "Dr. Alejandro López Feldman",
-        "Dr. Alejandro J. López-Feldman",
-        "Doctor Alejandro José López Feldman"
-      ) ~ "Dr. Alejandro José López Feldman",
-
-      # --- Alfonso Miranda ---
-      asesor %in% c(
-        "Alfonso Miranda",
-        "Dr. Alfonso Miranda Caso Luengo",
-        "Dr. Alfonso Miranda Caso"
-      ) ~ "Dr. Alfonso Miranda Caso",
-      
-      asesor == "Dr. Rodolfo Cermeño Bazán y David Mayer Foulkes" ~ "Dr. Rodolfo Cermeño Bazán y Dr. David Arie Mayer Foulkes",
-
-      # Default: dejar como viene
-      TRUE ~ asesor
-    )
+if (nrow(conflicting_aliases) > 0) {
+  stop(
+    "Hay alias de asesor asociados a más de un nombre canónico: ",
+    paste(conflicting_aliases$advisor_raw, collapse = "; ")
   )
+}
+
+advisor_aliases <- advisor_aliases %>%
+  distinct(advisor_raw, advisor_canonical)
+
+unmapped_advisors <- tesis_meta_unica %>%
+  distinct(asesor) %>%
+  filter(!is.na(asesor), !(asesor %in% advisor_aliases$advisor_raw)) %>%
+  arrange(asesor)
+
+if (nrow(unmapped_advisors) > 0) {
+  message("Asesores sin regla explícita de alias: ", nrow(unmapped_advisors))
+}
+
+tesis_meta_unica <- tesis_meta_unica %>%
+  left_join(advisor_aliases, by = c("asesor" = "advisor_raw")) %>%
+  mutate(asesor_unificado = coalesce(advisor_canonical, asesor)) %>%
+  select(-advisor_canonical)
 ```
 
 
