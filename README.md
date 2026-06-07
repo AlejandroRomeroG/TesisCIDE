@@ -20,9 +20,10 @@ El proyecto usa Parquet como formato único de datos tabulares persistidos.
 - `tesis_lic_economia_cide.parquet`: base canónica de tesis.
 - `embeddings_tesis.parquet`: cache de embeddings por tesis y modelo.
 - `model_benchmark.parquet`: comparación local de modelos multilingües candidatos.
-- `clusters_tesis.parquet`: tesis con cluster y coordenadas UMAP.
+- `clusters_tesis.parquet`: tesis con cluster y coordenadas UMAP 2D/3D.
 - `clusters_resumen.parquet`: resumen enriquecido por cluster, con nombre temático, keywords, tesis representativas y asesores principales.
 - `cluster_diagnostics.parquet`: métricas para elegir número de clusters.
+- `umap_diagnostics.parquet`: comparación de trustworthiness entre la proyección UMAP 2D y la exploración UMAP 3D.
 - `cluster_anio.parquet`: grilla completa año × cluster para evolución temporal, incluyendo ceros.
 - `cluster_lifecycle.parquet`: resumen de ciclo de vida por cluster, con año de inicio, pico y cambio de participación por década.
 - `cluster_idioma.parquet`: distribución de idioma por cluster.
@@ -78,6 +79,7 @@ make clusters
 
 - La paginación del scraper no asume un número fijo de tesis; avanza hasta que el repositorio deja de devolver resultados.
 - El clustering actual usa K-Means sobre embeddings multilingües; UMAP se usa como layout visual. La notebook exporta diagnósticos para revisar el número de clusters antes de usarlos como clasificación sustantiva.
+- La proyección UMAP 3D se exporta como vista exploratoria (`umap_z`) y no cambia el clustering principal; sirve para inspeccionar vecindades que el mapa 2D puede comprimir.
 - El modelo de embeddings por defecto es `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`. Es más pesado que MiniLM, pero en el benchmark local produjo mejor cohesión semántica y menor dependencia del idioma. Puedes probar otro modelo con `ST_MODEL_NAME=... make clusters`.
 - El número de clusters queda configurado en `ST_CLUSTER_K` y por defecto usa `11`, para evitar soluciones demasiado gruesas aunque el máximo de silhouette favorezca menos grupos.
 - Los clusters tienen dos identificadores: `cluster_label` conserva el id técnico y `cluster_theme` contiene el nombre interpretativo basado en keywords.
