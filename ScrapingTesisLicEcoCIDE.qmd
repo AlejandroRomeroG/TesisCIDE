@@ -11,7 +11,6 @@ library(purrr)
 library(stringr)
 library(tibble)
 library(xml2)
-library(writexl)
 library(arrow)
 ```
 
@@ -20,9 +19,7 @@ library(arrow)
 # Raíz del sitio y base de la paginación
 root_url  <- "https://repositorio-digital.cide.edu"
 base_list <- "https://repositorio-digital.cide.edu/handle/11651/15/recent-submissions?offset="
-
-# Sabemos que hay 462 tesis, 20 por página = 24 páginas -> offsets de 0 a 460
-offsets <- seq(0, 460, by = 20)
+page_size <- 20
 
 # Función para extraer la información
 get_links_from_page <- function(offset) {
@@ -33,23 +30,70 @@ get_links_from_page <- function(offset) {
 
   # Títulos y hrefs
   nodes_titulos <- page %>% html_elements("a.item-text.text-justify")
+
+  tablas <- page %>% html_table()
+  if (length(nodes_titulos) == 0 || length(tablas) == 0) {
+    return(tibble(
+      anio = integer(),
+      author = character(),
+      title = character(),
+      href = character(),
+      url = character(),
+      offset = integer()
+    ))
+  }
+
   # Tabla para extraer el año y el autor
-  tabla <- page %>% html_table()
-  años <- as.integer(stringr::str_sub(tabla[[1]]$X1, start = 1, end = 4))
-  nombres <- stringr::str_squish(tabla[[1]]$X3)
+  tabla <- tablas[[1]]
+  n_items <- min(length(nodes_titulos), nrow(tabla))
+
+  if (n_items == 0) {
+    return(tibble(
+      anio = integer(),
+      author = character(),
+      title = character(),
+      href = character(),
+      url = character(),
+      offset = integer()
+    ))
+  }
+
+  if (length(nodes_titulos) != nrow(tabla)) {
+    warning("El número de títulos no coincide con la tabla en offset ", offset)
+  }
+
+  anios <- as.integer(stringr::str_sub(tabla$X1[seq_len(n_items)], start = 1, end = 4))
+  nombres <- stringr::str_squish(tabla$X3[seq_len(n_items)])
 
   tibble(
-    año    = años,
+    anio   = anios,
     author = nombres,
-    title  = nodes_titulos %>% html_text2(),
-    href   = nodes_titulos %>% html_attr("href"),
+    title  = nodes_titulos[seq_len(n_items)] %>% html_text2(),
+    href   = nodes_titulos[seq_len(n_items)] %>% html_attr("href"),
     url    = paste0(root_url, href),
     offset = offset
   )
 }
 
-# Aplicar a todos los offsets y juntar en un solo data frame
-tesis_links <- map_dfr(offsets, get_links_from_page)
+get_all_links <- function(page_size = 20) {
+  offset <- 0
+  pages <- list()
+
+  repeat {
+    page_links <- get_links_from_page(offset)
+    if (nrow(page_links) == 0) break
+
+    pages[[length(pages) + 1]] <- page_links
+    offset <- offset + page_size
+  }
+
+  bind_rows(pages)
+}
+
+# Aplicar a todos los offsets disponibles y juntar en un solo data frame
+tesis_links <- get_all_links(page_size = page_size)
+
+stopifnot(nrow(tesis_links) > 0)
 
 tesis_links <- tesis_links %>%
   mutate(title  = stringr::str_squish(title))
@@ -71,7 +115,7 @@ get_meta_from_tesis <- function(url) {
     return(tibble(
       url          = url,
       titulo_meta  = NA_character_,
-      año_pub_meta = NA_integer_,
+      anio_pub_meta = NA_integer_,
       autor_meta   = NA_character_,
       idioma       = NA_character_,
       tipo_acceso  = NA_character_,
@@ -105,7 +149,7 @@ get_meta_from_tesis <- function(url) {
     # 1. Título de la tesis
     titulo_meta  = get_val("dc.title"),
     # 2. Año de publicación
-    año_pub_meta = suppressWarnings(as.integer(get_val("dc.date.issued"))),
+    anio_pub_meta = suppressWarnings(as.integer(get_val("dc.date.issued"))),
     # 3. Autor/a
     autor_meta   = get_val("dc.creator"),
     # 4. Idioma
@@ -474,21 +518,33 @@ tesis_meta_unica <- tesis_meta_unica %>%
 
 Finalmente, exportamos los datos obtenidos
 ```{r}
+output_data_path <- "tesis_lic_economia_cide.parquet"
+
 tesis_meta_unica <- tesis_meta_unica %>%
   rename(
     titulo = titulo_meta,
-    año_pub = año_pub_meta,
+    anio_pub = anio_pub_meta,
     autorx = autor_meta
   )
 
 tesis_meta_unica <- tesis_meta_unica %>%
-  select(año_pub, autorx, titulo, resumen, asesor, 
+  select(anio_pub, autorx, titulo, resumen, asesor,
          asesor_unificado, idioma, tipo_acceso, url)
 
 tesis_meta_unica <- tesis_meta_unica %>%
-  arrange(año_pub)
+  arrange(anio_pub)
 
-write.csv(tesis_meta_unica, "tesis_lic_economia_cide.csv", row.names = FALSE)
-write_xlsx(tesis_meta_unica, "tesis_lic_economia_cide.xlsx", col_names = TRUE, format_headers = TRUE)
-write_parquet(tesis_meta_unica, "tesis_lic_economia_cide.parquet")
+required_cols <- c("anio_pub", "autorx", "titulo", "resumen", "url")
+missing_required <- required_cols[colSums(is.na(tesis_meta_unica[required_cols])) > 0]
+
+if (length(missing_required) > 0) {
+  stop("Hay columnas requeridas con valores faltantes: ", paste(missing_required, collapse = ", "))
+}
+
+if (anyDuplicated(tesis_meta_unica$url) > 0) {
+  stop("Hay URLs duplicadas; revisar deduplicación antes de exportar.")
+}
+
+write_parquet(tesis_meta_unica, output_data_path)
+message("Archivo Parquet exportado: ", normalizePath(output_data_path, mustWork = FALSE))
 ```

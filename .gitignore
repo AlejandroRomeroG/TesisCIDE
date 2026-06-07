@@ -1,7 +1,11 @@
 /.Rhistory
+/.venv/
+/.tools/
 /ScrapingVPositron
 /Untitled-1.qmd
+/ScrapingTesisLicEcoCIDE.html
+/ScrapingTesisLicEcoCIDE_files/
+/.quarto/
 /clusters_tesis.xlsx
 /tesis_lic_economia_cide.csv
-/tesis_lic_economia_cide.parquet
 /tesis_lic_economia_cide.xlsx

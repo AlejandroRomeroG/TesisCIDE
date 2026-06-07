@@ -1,0 +1,15 @@
+numpy<2
+pandas
+pyarrow
+sentence-transformers==3.0.1
+transformers<5
+torch
+umap-learn==0.5.7
+numba==0.60.0
+llvmlite==0.43.0
+scikit-learn==1.5.2
+networkx
+plotly
+ipykernel
+nbformat
+jupyter
