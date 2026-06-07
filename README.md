@@ -23,7 +23,8 @@ El proyecto usa Parquet como formato único de datos tabulares persistidos.
 - `clusters_tesis.parquet`: tesis con cluster y coordenadas UMAP.
 - `clusters_resumen.parquet`: resumen enriquecido por cluster, con nombre temático, keywords, tesis representativas y asesores principales.
 - `cluster_diagnostics.parquet`: métricas para elegir número de clusters.
-- `cluster_anio.parquet`: evolución temporal de clusters por año.
+- `cluster_anio.parquet`: grilla completa año × cluster para evolución temporal, incluyendo ceros.
+- `cluster_lifecycle.parquet`: resumen de ciclo de vida por cluster, con año de inicio, pico y cambio de participación por década.
 - `cluster_idioma.parquet`: distribución de idioma por cluster.
 - `asesor_cluster_resumen.parquet`: cruce asesor-cluster.
 - `asesor_resumen.parquet`: volumen y diversidad temática por asesor.
@@ -80,4 +81,5 @@ make clusters
 - El modelo de embeddings por defecto es `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`. Es más pesado que MiniLM, pero en el benchmark local produjo mejor cohesión semántica y menor dependencia del idioma. Puedes probar otro modelo con `ST_MODEL_NAME=... make clusters`.
 - El número de clusters queda configurado en `ST_CLUSTER_K` y por defecto usa `11`, para evitar soluciones demasiado gruesas aunque el máximo de silhouette favorezca menos grupos.
 - Los clusters tienen dos identificadores: `cluster_label` conserva el id técnico y `cluster_theme` contiene el nombre interpretativo basado en keywords.
+- El dashboard HTML incluye una película acumulativa del mapa semántico, una carrera anual de temas, comparación por periodos y tablas de ciclo de vida para explorar cómo cambian los clusters en el tiempo.
 - La columna `asesor_unificado` reduce variantes textuales del nombre de asesor usando `data-raw/asesores_alias.csv`. Si el repositorio cambia o se agregan nuevas tesis, revisar `data-quality/asesores_sin_alias.csv`, ampliar la tabla de alias y volver a correr `make scrape` antes de interpretar redes de asesoría.
