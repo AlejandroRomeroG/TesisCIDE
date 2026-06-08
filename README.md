@@ -9,7 +9,7 @@ El proyecto usa Parquet como formato único de datos tabulares persistidos.
 1. Ejecutar `ScrapingTesisLicEcoCIDE.qmd`.
 2. Generar `tesis_lic_economia_cide.parquet`.
 3. Ejecutar `mapa_semantico_tesis.ipynb`.
-4. Generar `clusters_tesis.parquet`, `clusters_resumen.parquet`, los Parquet de variantes de clustering y `semantic_dashboard.html`.
+4. Generar `clusters_tesis.parquet`, `clusters_resumen.parquet`, los Parquet de variantes de clustering/topic modeling y `semantic_dashboard.html`.
 
 ## Archivos Principales
 
@@ -27,6 +27,7 @@ El proyecto usa Parquet como formato único de datos tabulares persistidos.
 - `cluster_variants.parquet`: asignación de cada tesis bajo K-Means sobre embeddings, UMAP 2D y UMAP 3D.
 - `cluster_variant_summary.parquet`: keywords, nombres automáticos y tesis representativas por variante experimental.
 - `cluster_variant_metrics.parquet`: comparación de silhouette, dependencia de idioma y traslape de keywords entre variantes.
+- `topic_model_metrics.parquet`: métricas interpretativas de topic modeling, incluyendo coherencia `c_v`, diversidad, outliers y traslape.
 - `cluster_keyword_overlap.parquet`: pares de clusters con keywords compartidas para auditar solapamientos temáticos.
 - `cluster_anio.parquet`: grilla completa año × cluster para evolución temporal, incluyendo ceros.
 - `cluster_lifecycle.parquet`: resumen de ciclo de vida por cluster, con año de inicio, pico y cambio de participación por década.
@@ -82,7 +83,8 @@ make clusters
 ## Notas Metodológicas
 
 - La paginación del scraper no asume un número fijo de tesis; avanza hasta que el repositorio deja de devolver resultados.
-- El clustering principal usa K-Means sobre embeddings multilingües; UMAP se usa como layout visual. La notebook también calcula variantes experimentales con K-Means sobre UMAP 2D y UMAP 3D para comparar compactación visual y traslape de keywords antes de promover una solución.
+- El clustering principal usa K-Means sobre embeddings multilingües; UMAP se usa como layout visual. La notebook también calcula variantes experimentales con K-Means sobre UMAP 2D/3D y una variante BERTopic/HDBSCAN con UMAP 10D, `min_cluster_size=10`, `min_samples=2` y c-TF-IDF para comparar compactación visual, coherencia, diversidad y traslape de keywords antes de promover una solución.
+- La variante BERTopic/HDBSCAN puede producir outliers; estos se conservan explícitamente para no forzar tesis ambiguas dentro de temas poco robustos.
 - La proyección UMAP 3D se exporta como vista exploratoria (`umap_z`) y no cambia el clustering principal; sirve para inspeccionar vecindades que el mapa 2D puede comprimir.
 - El modelo de embeddings por defecto es `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`. Es más pesado que MiniLM, pero en el benchmark local produjo mejor cohesión semántica y menor dependencia del idioma. Puedes probar otro modelo con `ST_MODEL_NAME=... make clusters`.
 - El número de clusters queda configurado en `ST_CLUSTER_K` y por defecto usa `11`, para evitar soluciones demasiado gruesas aunque el máximo de silhouette favorezca menos grupos.
