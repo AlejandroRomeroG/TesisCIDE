@@ -16,6 +16,7 @@ El proyecto usa Parquet como formato único de datos tabulares persistidos.
 - `ScrapingTesisLicEcoCIDE.qmd`: scraping, extracción de metadatos, limpieza básica y normalización de asesores.
 - `mapa_semantico_tesis.ipynb`: lectura del Parquet canónico, embeddings multilingües, UMAP, diagnóstico de clusters, visualizaciones y exportación de resultados analíticos.
 - `data-raw/asesores_alias.csv`: tabla editable de alias para normalizar nombres de asesores.
+- `data-raw/topic_keyword_aliases.csv`: tabla editable de alias bilingües para homologar keywords temáticas en español e inglés.
 - `data-quality/asesores_sin_alias.csv`: reporte generado con asesores que aún no tienen alias explícito.
 - `tesis_lic_economia_cide.parquet`: base canónica de tesis.
 - `embeddings_tesis.parquet`: cache de embeddings por tesis y modelo.
@@ -28,6 +29,10 @@ El proyecto usa Parquet como formato único de datos tabulares persistidos.
 - `cluster_variant_summary.parquet`: keywords, nombres automáticos y tesis representativas por variante experimental.
 - `cluster_variant_metrics.parquet`: comparación de silhouette, dependencia de idioma y traslape de keywords entre variantes.
 - `topic_model_metrics.parquet`: métricas interpretativas de topic modeling, incluyendo coherencia `c_v`, diversidad, outliers, balance, score interpretativo y traslape.
+- `topic_model_frontier.parquet`: variantes no dominadas en una frontera Pareto de coherencia, bajo traslape, balance, baja dependencia de idioma y estabilidad.
+- `topic_stability.parquet`: métricas de robustez por variante, incluyendo estabilidad por semillas, bootstrap/submuestras y margen de asignación.
+- `topic_memberships.parquet`: membresías suaves top-3 por tesis para los subtemas del consenso ensemble.
+- `topic_taxonomy.parquet`: taxonomía jerárquica macrotema × subtema construida desde clusters principales y consenso entre modelos.
 - `cluster_keyword_overlap.parquet`: pares de clusters con keywords compartidas para auditar solapamientos temáticos.
 - `cluster_anio.parquet`: grilla completa año × cluster para evolución temporal, incluyendo ceros.
 - `cluster_lifecycle.parquet`: resumen de ciclo de vida por cluster, con año de inicio, pico y cambio de participación por década.
@@ -86,7 +91,13 @@ make clusters
 - El clustering principal usa K-Means sobre embeddings multilingües; UMAP se usa como layout visual. La notebook también calcula variantes experimentales con K-Means sobre UMAP 2D/3D, spherical K-Means, clustering aglomerativo Ward, NMF sobre TF-IDF, LDA sobre conteos y una variante BERTopic/HDBSCAN con UMAP 10D, `min_cluster_size=10`, `min_samples=2` y c-TF-IDF para comparar compactación visual, coherencia, diversidad, balance y traslape de keywords antes de promover una solución.
 - El `interpretability_score` combina coherencia, diversidad, bajo traslape, balance de tamaños, ausencia de singleton topics y penalización moderada por outliers. Sirve para ordenar candidatos, no como sustituto de revisión sustantiva.
 - La variante BERTopic/HDBSCAN puede producir outliers; estos se conservan explícitamente para no forzar tesis ambiguas dentro de temas poco robustos.
-- La proyección UMAP 3D se exporta como vista exploratoria (`umap_z`) y no cambia el clustering principal; sirve para inspeccionar vecindades que el mapa 2D puede comprimir.
+- La proyección UMAP 3D se exporta como vista exploratoria (`umap_z`) y no cambia por sí sola el clustering principal; sirve para inspeccionar vecindades que el mapa 2D puede comprimir.
+- La notebook calcula un consenso ensemble: combina co-asignaciones ponderadas de K-Means, UMAP 2D/3D, spherical K-Means, Ward, NMF y BERTopic, y luego reclusteriza esa matriz para obtener subtemas más estables.
+- La taxonomía jerárquica cruza el clustering principal de macrotemas con los subtemas del consenso. Esto permite leer la colección en dos escalas: áreas amplias de economía y especializaciones internas.
+- `topic_memberships.parquet` evita forzar una tesis a un solo tema: conserva los tres subtemas de consenso más cercanos y un margen de ambigüedad para detectar tesis híbridas.
+- `topic_model_frontier.parquet` evita elegir el "mejor" modelo con una sola métrica. Conserva los modelos no dominados entre coherencia, bajo traslape, balance, outliers, dependencia de idioma y estabilidad.
+- `topic_stability.parquet` agrega una auditoría de robustez con semillas, submuestras y margen de asignación. El `robust_interpretability_score` combina el score interpretativo con esa estabilidad.
+- `data-raw/topic_keyword_aliases.csv` homologa keywords bilingües como `inflation`/`inflacion`, `labor`/`mercado laboral` o `credit`/`credito`. Editar este CSV y volver a correr `make clusters` permite mejorar etiquetas sin tocar el scraper.
 - El modelo de embeddings por defecto es `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`. Es más pesado que MiniLM, pero en el benchmark local produjo mejor cohesión semántica y menor dependencia del idioma. Puedes probar otro modelo con `ST_MODEL_NAME=... make clusters`.
 - El número de clusters queda configurado en `ST_CLUSTER_K` y por defecto usa `11`, para evitar soluciones demasiado gruesas aunque el máximo de silhouette favorezca menos grupos.
 - Los clusters tienen dos identificadores: `cluster_label` conserva el id técnico y `cluster_theme` contiene el nombre interpretativo basado en keywords.

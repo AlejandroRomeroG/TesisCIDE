@@ -1,0 +1,69 @@
+alias,canonical,domain
+inflation,inflacion,macroeconomia
+inflacion,inflacion,macroeconomia
+monetary policy,politica monetaria,macroeconomia
+politica monetaria,politica monetaria,macroeconomia
+exchange rate,tipo de cambio,macroeconomia
+tipo cambio,tipo de cambio,macroeconomia
+economic growth,crecimiento economico,macroeconomia
+crecimiento,crecimiento economico,macroeconomia
+fiscal policy,politica fiscal,macroeconomia
+public finance,finanzas publicas,macroeconomia
+labor,mercado laboral,trabajo
+labour,mercado laboral,trabajo
+employment,empleo,trabajo
+unemployment,desempleo,trabajo
+wage,salarios,trabajo
+wages,salarios,trabajo
+education,educacion,educacion
+school,escuela,educacion
+schools,escuela,educacion
+student,estudiantes,educacion
+students,estudiantes,educacion
+academic performance,desempeno escolar,educacion
+school performance,desempeno escolar,educacion
+health,salud,salud
+healthcare,salud,salud
+social security,seguridad social,salud
+poverty,pobreza,desarrollo
+inequality,desigualdad,desarrollo
+migration,migracion,desarrollo
+development,desarrollo,desarrollo
+crime,crimen,seguridad
+violence,violencia,seguridad
+security,seguridad,seguridad
+financial,finanzas,finanzas
+finance,finanzas,finanzas
+credit,credito,finanzas
+bank,banca,finanzas
+banks,banca,finanzas
+financial markets,mercados financieros,finanzas
+stock market,mercados financieros,finanzas
+market,mercado,organizacion industrial
+markets,mercado,organizacion industrial
+competition,competencia,organizacion industrial
+industrial organization,organizacion industrial,organizacion industrial
+game theory,teoria de juegos,organizacion industrial
+trade,comercio,comercio
+exports,exportaciones,comercio
+imports,importaciones,comercio
+agriculture,agricultura,ambiente
+environment,medio ambiente,ambiente
+climate,clima,ambiente
+water,agua,ambiente
+energy,energia,ambiente
+public policy,politica publica,politica publica
+policy,politica publica,politica publica
+government,gobierno,politica publica
+tax,impuestos,finanzas publicas
+taxes,impuestos,finanzas publicas
+household,hogares,hogares
+households,hogares,hogares
+gender,genero,genero
+women,mujeres,genero
+female,mujeres,genero
+family,familia,genero
+firm,empresas,empresas
+firms,empresas,empresas
+productivity,productividad,empresas
+innovation,innovacion,empresas
