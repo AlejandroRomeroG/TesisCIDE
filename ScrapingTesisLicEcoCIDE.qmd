@@ -1,206 +1,260 @@
 ---
-author: "Alejandro Romero González"
-title: "Scraping de Tesis de Licenciatura en Economía del repositorio oficial del CIDE"
-affiliation: "Banco de México"
+author: "Alejandro Romero Gonzalez"
+title: "Cosecha de tesis de todos los programas académicos del CIDE"
+affiliation: "Banco de Mexico"
 ---
 
 ```{r}
-try(Sys.setlocale("LC_CTYPE", "en_US.UTF-8"), silent = TRUE)
+try(Sys.setlocale("LC_ALL", "en_US.UTF-8"), silent = TRUE)
 
-library(rvest)
+library(arrow)
 library(dplyr)
 library(purrr)
 library(stringr)
 library(tibble)
 library(xml2)
-library(arrow)
 ```
 
-# Primero, extraeremos los links de todas las tesis
+## Configuracion
+
+La fuente principal es el endpoint OAI-PMH de DSpace. Esto permite cosechar la
+comunidad completa de tesis en lotes, conservar valores repetidos y descubrir
+nuevos programas sin mantener una lista manual de colecciones.
+
 ```{r}
-# Raíz del sitio y base de la paginación
-root_url  <- "https://repositorio-digital.cide.edu"
-base_list <- "https://repositorio-digital.cide.edu/handle/11651/15/recent-submissions?offset="
-page_size <- 20
+root_url <- "https://repositorio-digital.cide.edu"
+oai_url <- paste0(root_url, "/oai/request")
+thesis_community_set <- "com_11651_3"
 
-# Función para extraer la información
-get_links_from_page <- function(offset) {
-  url <- paste0(base_list, offset)
-  message("Leyendo offset = ", offset, " | ", url)
+output_data_path <- "tesis_cide.parquet"
+program_inventory_path <- "tesis_programas_resumen.parquet"
+advisor_alias_path <- "data-raw/asesores_alias.csv"
+advisor_merge_path <- "data-raw/asesores_canonicos_merge.csv"
+advisor_quality_dir <- "data-quality"
+unmapped_advisors_path <- file.path(advisor_quality_dir, "asesores_sin_alias.csv")
+advisor_duplicates_path <- file.path(advisor_quality_dir, "asesores_posibles_duplicados.csv")
+advisor_catalog_path <- "asesores_catalogo.parquet"
 
-  page <- read_html(url)
+oai_read <- function(params, attempts = 5) {
+  query <- paste(
+    names(params),
+    vapply(params, URLencode, character(1), reserved = TRUE),
+    sep = "=",
+    collapse = "&"
+  )
+  url <- paste0(oai_url, "?", query)
 
-  # Títulos y hrefs
-  nodes_titulos <- page %>% html_elements("a.item-text.text-justify")
+  for (attempt in seq_len(attempts)) {
+    result <- tryCatch(read_xml(url, options = "HUGE"), error = identity)
+    if (!inherits(result, "error")) return(result)
 
-  tablas <- page %>% html_table()
-  if (length(nodes_titulos) == 0 || length(tablas) == 0) {
-    return(tibble(
-      anio = integer(),
-      author = character(),
-      title = character(),
-      href = character(),
-      url = character(),
-      offset = integer()
-    ))
+    if (attempt == attempts) {
+      stop("No se pudo leer OAI-PMH despues de ", attempts, " intentos: ", url, "\n", result$message)
+    }
+    Sys.sleep(min(2 ^ attempt, 20))
+  }
+}
+
+normalize_unicode <- function(values) {
+  stringi::stri_trans_nfc(values)
+}
+
+first_value <- function(values) {
+  values <- unique(str_squish(normalize_unicode(values)))
+  values <- values[!is.na(values) & values != ""]
+  if (length(values) == 0) NA_character_ else values[[1]]
+}
+
+collapse_values <- function(values, separator = " | ") {
+  values <- unique(str_squish(normalize_unicode(values)))
+  values <- values[!is.na(values) & values != ""]
+  if (length(values) == 0) NA_character_ else paste(values, collapse = separator)
+}
+```
+
+## Descubrimiento de programas
+
+```{r}
+sets_xml <- oai_read(list(verb = "ListSets"))
+set_nodes <- xml_find_all(sets_xml, ".//*[local-name()='set']")
+
+program_inventory <- tibble(
+  collection_set = xml_text(xml_find_first(set_nodes, "./*[local-name()='setSpec']")),
+  coleccion = xml_text(xml_find_first(set_nodes, "./*[local-name()='setName']"))
+) %>%
+  mutate(across(c(collection_set, coleccion), normalize_unicode)) %>%
+  filter(
+    str_detect(collection_set, "^col_11651_"),
+    str_detect(
+      coleccion,
+      regex("^Tesis\\s+(Doctorado|Licenciatura|Maestr[ií]a)\\s+en\\s+", ignore_case = TRUE)
+    )
+  ) %>%
+  mutate(
+    nivel = case_when(
+      str_detect(coleccion, regex("Doctorado", ignore_case = TRUE)) ~ "Doctorado",
+      str_detect(coleccion, regex("Licenciatura", ignore_case = TRUE)) ~ "Licenciatura",
+      str_detect(coleccion, regex("Maestr", ignore_case = TRUE)) ~ "Maestría",
+      TRUE ~ "Otro"
+    ),
+    programa = str_remove(
+      coleccion,
+      regex("^Tesis\\s+(Doctorado|Licenciatura|Maestr[ií]a)\\s+en\\s+", ignore_case = TRUE)
+    ),
+    grado_programa = paste(nivel, "en", programa),
+    collection_handle = collection_set %>%
+      str_remove("^col_") %>%
+      str_replace("_", "/"),
+    collection_url = paste0(root_url, "/handle/", collection_handle)
+  ) %>%
+  arrange(factor(nivel, levels = c("Licenciatura", "Maestría", "Doctorado")), programa)
+
+if (nrow(program_inventory) == 0) {
+  stop("No se descubrieron colecciones academicas dentro de la comunidad de tesis.")
+}
+
+message("Programas de tesis descubiertos: ", nrow(program_inventory))
+print(program_inventory, n = Inf)
+```
+
+## Cosecha OAI-PMH de todas las tesis
+
+```{r}
+parse_oai_record <- function(record, program_sets) {
+  header <- xml_find_first(record, "./*[local-name()='header']")
+  if (identical(xml_attr(header, "status"), "deleted")) return(NULL)
+
+  set_specs <- xml_text(xml_find_all(header, "./*[local-name()='setSpec']"))
+  collection_set <- intersect(set_specs, program_sets)
+  if (length(collection_set) == 0) return(NULL)
+
+  metadata <- xml_find_first(record, "./*[local-name()='metadata']/*[local-name()='dc']")
+  if (inherits(metadata, "xml_missing")) return(NULL)
+
+  values_for <- function(field) {
+    xml_text(xml_find_all(metadata, paste0("./*[local-name()='", field, "']")))
   }
 
-  # Tabla para extraer el año y el autor
-  tabla <- tablas[[1]]
-  n_items <- min(length(nodes_titulos), nrow(tabla))
-
-  if (n_items == 0) {
-    return(tibble(
-      anio = integer(),
-      author = character(),
-      title = character(),
-      href = character(),
-      url = character(),
-      offset = integer()
-    ))
+  identifiers <- values_for("identifier")
+  oai_identifier <- xml_text(xml_find_first(header, "./*[local-name()='identifier']"))
+  item_handle <- first_value(c(
+    str_extract(identifiers, "11651/[0-9]+"),
+    str_extract(oai_identifier, "11651/[0-9]+")
+  ))
+  item_url <- if (!is.na(item_handle)) {
+    paste0(root_url, "/handle/", item_handle)
+  } else {
+    first_value(identifiers[str_detect(identifiers, "^https?://")])
   }
 
-  if (length(nodes_titulos) != nrow(tabla)) {
-    warning("El número de títulos no coincide con la tabla en offset ", offset)
-  }
+  date_values <- values_for("date")
+  years <- str_extract(date_values, "(?<![0-9])(19|20)[0-9]{2}(?![0-9])")
+  years <- suppressWarnings(as.integer(years[!is.na(years)]))
+  issued_year <- if (length(years) == 0) NA_integer_ else years[[length(years)]]
 
-  anios <- as.integer(stringr::str_sub(tabla$X1[seq_len(n_items)], start = 1, end = 4))
-  nombres <- stringr::str_squish(tabla$X3[seq_len(n_items)])
+  rights <- values_for("rights")
+  access_right <- first_value(rights[str_detect(rights, regex("acceso|access", ignore_case = TRUE))])
 
   tibble(
-    anio   = anios,
-    author = nombres,
-    title  = nodes_titulos[seq_len(n_items)] %>% html_text2(),
-    href   = nodes_titulos[seq_len(n_items)] %>% html_attr("href"),
-    url    = paste0(root_url, href),
-    offset = offset
+    collection_set = collection_set[[1]],
+    item_handle = item_handle,
+    oai_identifier = oai_identifier,
+    oai_datestamp = xml_text(xml_find_first(header, "./*[local-name()='datestamp']")),
+    anio_pub = issued_year,
+    autorx = collapse_values(values_for("creator")),
+    titulo = first_value(values_for("title")),
+    resumen = collapse_values(values_for("description"), separator = "\n\n"),
+    materias = collapse_values(values_for("subject")),
+    asesor = collapse_values(values_for("contributor")),
+    idioma = first_value(values_for("language")),
+    tipo_documento = first_value(values_for("type")),
+    tipo_acceso = access_right,
+    derechos = collapse_values(rights),
+    publisher = collapse_values(values_for("publisher")),
+    formato = collapse_values(values_for("format")),
+    url = item_url
   )
 }
 
-get_all_links <- function(page_size = 20) {
-  offset <- 0
+harvest_oai_set <- function(set_spec) {
   pages <- list()
+  token <- NULL
+  page_number <- 0L
+  complete_list_size <- NA_integer_
 
   repeat {
-    page_links <- get_links_from_page(offset)
-    if (nrow(page_links) == 0) break
+    page_number <- page_number + 1L
+    params <- if (is.null(token)) {
+      list(verb = "ListRecords", metadataPrefix = "oai_dc", set = set_spec)
+    } else {
+      list(verb = "ListRecords", resumptionToken = token)
+    }
 
-    pages[[length(pages) + 1]] <- page_links
-    offset <- offset + page_size
+    page_xml <- oai_read(params)
+    error_node <- xml_find_first(page_xml, ".//*[local-name()='error']")
+    if (!inherits(error_node, "xml_missing")) {
+      stop("OAI-PMH devolvio un error: ", xml_attr(error_node, "code"), " - ", xml_text(error_node))
+    }
+
+    record_nodes <- xml_find_all(page_xml, ".//*[local-name()='record']")
+    pages[[page_number]] <- map_dfr(
+      record_nodes,
+      parse_oai_record,
+      program_sets = program_inventory$collection_set
+    )
+
+    token_node <- xml_find_first(page_xml, ".//*[local-name()='resumptionToken']")
+    if (!inherits(token_node, "xml_missing")) {
+      complete_attr <- xml_attr(token_node, "completeListSize")
+      if (!is.na(complete_attr) && complete_attr != "") {
+        complete_list_size <- suppressWarnings(as.integer(complete_attr))
+      }
+      token <- str_squish(xml_text(token_node))
+    } else {
+      token <- NA_character_
+    }
+
+    harvested <- sum(map_int(pages, nrow))
+    message(
+      "Pagina OAI ", page_number,
+      " | registros academicos acumulados: ", harvested,
+      if (!is.na(complete_list_size)) paste0(" | total comunidad: ", complete_list_size) else ""
+    )
+
+    if (is.na(token) || token == "") break
+    Sys.sleep(0.25)
   }
 
   bind_rows(pages)
 }
 
-# Aplicar a todos los offsets disponibles y juntar en un solo data frame
-tesis_links <- get_all_links(page_size = page_size)
-
-stopifnot(nrow(tesis_links) > 0)
-
-tesis_links <- tesis_links %>%
-  mutate(title  = stringr::str_squish(title))
-```
-
-```{r}
-get_meta_from_tesis <- function(url) {
-  url_meta <- paste0(url, "?show=full")
-  message("Leyendo metadatos: ", url_meta)
-
-  page <- read_html(url_meta)
-
-  # Filas de la tabla de metadatos
-  rows <- page %>%
-    html_elements("table.ds-includeSet-table.detailtable tr")
-
-  # Si por alguna razón no encontramos la tabla, regresamos NA's
-  if (length(rows) == 0) {
-    return(tibble(
-      url          = url,
-      titulo_meta  = NA_character_,
-      anio_pub_meta = NA_integer_,
-      autor_meta   = NA_character_,
-      idioma       = NA_character_,
-      tipo_acceso  = NA_character_,
-      resumen      = NA_character_,
-      asesor       = NA_character_
-    ))
-  }
-
-  labels <- rows %>%
-    html_element("td.label-cell") %>%
-    html_text2()
-
-  values <- rows %>%
-    html_element("td.word-break") %>%
-    html_text2()
-
-  meta <- tibble(label = labels, value = values)
-
-  get_val <- function(code) {
-    vals <- meta %>%
-      filter(label == code) %>%
-      pull(value)
-
-    if (length(vals) == 0) return(NA_character_)
-    
-    stringr::str_squish(vals)
-  }
-
-  tibble(
-    url          = url,
-    # 1. Título de la tesis
-    titulo_meta  = get_val("dc.title"),
-    # 2. Año de publicación
-    anio_pub_meta = suppressWarnings(as.integer(get_val("dc.date.issued"))),
-    # 3. Autor/a
-    autor_meta   = get_val("dc.creator"),
-    # 4. Idioma
-    idioma       = get_val("dc.language.iso"),
-    # 5. Tipo de acceso
-    tipo_acceso  = get_val("dc.accessrights"),
-    # 6. Resumen
-    resumen      = get_val("dc.description.abstract"),
-    # 7. Asesor/a
-    asesor       = get_val("dc.contributor.advisor")
+tesis <- harvest_oai_set(thesis_community_set) %>%
+  distinct(item_handle, .keep_all = TRUE) %>%
+  left_join(program_inventory, by = "collection_set") %>%
+  mutate(
+    across(
+      c(autorx, titulo, resumen, materias, asesor, idioma, tipo_documento, tipo_acceso, derechos, publisher, formato),
+      ~na_if(str_squish(normalize_unicode(.x)), "")
+    ),
+    tiene_resumen = !is.na(resumen) & str_length(resumen) >= 40,
+    calidad_texto = if_else(tiene_resumen, "titulo_y_resumen", "solo_titulo")
   )
+
+if (nrow(tesis) == 0) stop("La cosecha OAI-PMH no produjo tesis academicas.")
+if (anyDuplicated(tesis$item_handle) > 0) stop("Hay handles duplicados despues de la deduplicacion.")
+if (any(is.na(tesis$titulo))) stop("Hay tesis sin titulo; revisar la cosecha antes de exportar.")
+if (any(is.na(tesis$programa)) || any(is.na(tesis$nivel))) {
+  stop("Hay tesis sin programa o nivel academico asignado.")
 }
 ```
 
-```{r}
-safe_get_meta <- safely(get_meta_from_tesis)
-
-raw_meta <- map(tesis_links$url, safe_get_meta)
-
-# Extraer sólo los resultados exitosos
-tesis_meta_segura <- raw_meta %>%
-  map("result") %>%
-  compact() %>% 
-  bind_rows()
-
-tesis_meta_unica <- tesis_meta_segura %>% 
-  group_by(across(-autor_meta)) %>%
-  summarise(
-    autor_meta = {
-      autores <- unique(autor_meta)
-      
-      # Si todos son NA, dejamos NA
-      if (all(is.na(autores))) {
-        NA_character_
-      } else {
-        # Quitamos NA y pegamos nombres con " y "
-        paste(autores[!is.na(autores)], collapse = " y ")
-      }
-    },
-    .groups = "drop"
-  )
-```
+## Normalizacion de asesores
 
 ```{r}
-advisor_alias_path <- "data-raw/asesores_alias.csv"
 required_alias_cols <- c("advisor_raw", "advisor_canonical")
 
 if (!file.exists(advisor_alias_path)) {
-  stop("No se encontró la tabla de alias de asesores: ", advisor_alias_path)
+  stop("No se encontro la tabla de alias de asesores: ", advisor_alias_path)
 }
 
 advisor_aliases <- read.csv(
@@ -217,43 +271,327 @@ if (length(missing_alias_cols) > 0) {
 }
 
 advisor_aliases <- advisor_aliases %>%
-  mutate(across(all_of(required_alias_cols), str_squish)) %>%
-  filter(advisor_raw != "", advisor_canonical != "")
+  mutate(across(all_of(required_alias_cols), ~str_squish(normalize_unicode(.x)))) %>%
+  filter(advisor_raw != "", advisor_canonical != "") %>%
+  distinct(advisor_raw, advisor_canonical)
 
 conflicting_aliases <- advisor_aliases %>%
-  distinct(advisor_raw, advisor_canonical) %>%
   count(advisor_raw, name = "n_canonicals") %>%
   filter(n_canonicals > 1)
 
 if (nrow(conflicting_aliases) > 0) {
   stop(
-    "Hay alias de asesor asociados a más de un nombre canónico: ",
+    "Hay alias asociados a mas de un nombre canonico: ",
     paste(conflicting_aliases$advisor_raw, collapse = "; ")
   )
 }
 
-advisor_aliases <- advisor_aliases %>%
-  distinct(advisor_raw, advisor_canonical)
+split_advisor_names <- function(value) {
+  value <- normalize_unicode(value)
+  if (is.na(value) || str_squish(value) == "") return(character())
+  protected_conjunctions <- c(
+    "Pablo Mijangos y González" = "Pablo Mijangos __PROTECTED_Y__ González",
+    "Camila Pastor de María y Campos" = "Camila Pastor de María __PROTECTED_Y__ Campos"
+  )
+  for (original in names(protected_conjunctions)) {
+    value <- str_replace_all(value, fixed(original), protected_conjunctions[[original]])
+  }
+  value %>%
+    str_replace_all(";", " | ") %>%
+    str_replace_all(regex(",\\s+(?=Ma\\.\\s)", ignore_case = TRUE), " | ") %>%
+    str_replace_all(
+      regex("\\s+(y|and)\\s+", ignore_case = TRUE),
+      " | "
+    ) %>%
+    str_replace_all("__PROTECTED_Y__", "y") %>%
+    str_split("\\s*\\|\\s*") %>%
+    .[[1]] %>%
+    str_squish() %>%
+    .[. != ""]
+}
 
-advisor_quality_dir <- "data-quality"
-unmapped_advisors_path <- file.path(advisor_quality_dir, "asesores_sin_alias.csv")
+advisor_occurrences <- map_dfr(seq_len(nrow(tesis)), function(index) {
+  if (is.na(tesis$asesor[[index]]) || tesis$asesor[[index]] == "") return(tibble())
+  tibble(
+    advisor_raw = split_advisor_names(tesis$asesor[[index]]),
+    anio_pub = tesis$anio_pub[[index]],
+    titulo = tesis$titulo[[index]],
+    programa = tesis$programa[[index]],
+    nivel = tesis$nivel[[index]]
+  )
+})
 
-unmapped_advisors <- tesis_meta_unica %>%
-  filter(!is.na(asesor), !(asesor %in% advisor_aliases$advisor_raw)) %>%
-  group_by(advisor_raw = asesor) %>%
+clean_advisor_display <- function(value) {
+  value <- str_squish(normalize_unicode(value))
+  value <- str_replace_all(value, "[\\[\\]]", " ") %>% str_squish()
+  value <- str_replace_all(value, "[\u2010\u2011\u2012\u2013\u2014-]+", " ")
+  value <- str_remove(
+    value,
+    regex("\\s*,?\\s*\\(?(ph\\s*\\.?\\s*d|phd|m\\s*\\.?\\s*e)\\.?\\)?$", ignore_case = TRUE)
+  )
+  value <- str_remove(
+    value,
+    regex(
+      "^((doctora|doctor|dra|dr|maestra|maestro|mtra|mtro|ph\\s*\\.?\\s*d|phd|m\\s*\\.?\\s*e|lic)\\.?\\s*)+",
+      ignore_case = TRUE
+    )
+  )
+  if (str_detect(value, ",")) {
+    pieces <- str_split(value, "\\s*,\\s*", n = 2)[[1]]
+    if (length(pieces) == 2) value <- paste(pieces[[2]], pieces[[1]])
+  }
+  value %>%
+    str_replace_all("[^[:alpha:]' ]+", " ") %>%
+    str_squish() %>%
+    str_to_title(locale = "es")
+}
+
+advisor_ordered_key <- function(value) {
+  value %>%
+    clean_advisor_display() %>%
+    stringi::stri_trans_general("Latin-ASCII") %>%
+    str_to_lower() %>%
+    str_replace_all("[^a-z ]+", " ") %>%
+    str_squish()
+}
+
+advisor_key <- function(value) {
+  tokens <- advisor_ordered_key(value) %>% str_split("\\s+") %>% .[[1]]
+  tokens <- tokens[
+    !tokens %in% c("de", "del", "la", "las", "los", "y", "da", "do") &
+      str_length(tokens) > 1
+  ]
+  paste(sort(unique(tokens)), collapse = " ")
+}
+
+explicit_aliases <- advisor_aliases %>%
+  mutate(
+    advisor_canonical_clean = map_chr(advisor_canonical, clean_advisor_display),
+    advisor_key = map_chr(advisor_raw, advisor_key)
+  )
+
+conflicting_keys <- explicit_aliases %>%
+  distinct(advisor_key, advisor_canonical_clean) %>%
+  count(advisor_key, name = "n_canonicals") %>%
+  filter(advisor_key != "", n_canonicals > 1)
+
+if (nrow(conflicting_keys) > 0) {
+  stop(
+    "La tabla explicita contiene claves normalizadas asociadas a personas distintas: ",
+    paste(conflicting_keys$advisor_key, collapse = "; ")
+  )
+}
+
+variant_stats <- advisor_occurrences %>%
+  count(advisor_raw, name = "n_tesis") %>%
+  mutate(
+    advisor_display = map_chr(advisor_raw, clean_advisor_display),
+    advisor_key = map_chr(advisor_raw, advisor_key)
+  )
+
+auto_representatives <- variant_stats %>%
+  mutate(
+    n_non_ascii = str_count(advisor_display, "[^ -~]"),
+    display_length = str_length(advisor_display)
+  ) %>%
+  arrange(advisor_key, desc(n_tesis), desc(n_non_ascii), desc(display_length), advisor_display) %>%
+  group_by(advisor_key) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(advisor_key, advisor_canonical_auto = advisor_display)
+
+explicit_exact <- explicit_aliases %>%
+  distinct(advisor_raw, advisor_canonical_exact = advisor_canonical_clean)
+explicit_by_key <- explicit_aliases %>%
+  distinct(advisor_key, advisor_canonical_key = advisor_canonical_clean)
+
+advisor_variant_map <- variant_stats %>%
+  left_join(explicit_exact, by = "advisor_raw") %>%
+  left_join(explicit_by_key, by = "advisor_key") %>%
+  left_join(auto_representatives, by = "advisor_key") %>%
+  mutate(
+    advisor_canonical = coalesce(
+      advisor_canonical_exact,
+      advisor_canonical_key,
+      advisor_canonical_auto,
+      advisor_display
+    ),
+    homologation_method = case_when(
+      !is.na(advisor_canonical_exact) ~ "alias_explicito",
+      !is.na(advisor_canonical_key) ~ "clave_de_alias",
+      TRUE ~ "clave_normalizada"
+    )
+  ) %>%
+  select(advisor_raw, advisor_display, advisor_key, advisor_canonical, homologation_method, n_tesis)
+
+if (!file.exists(advisor_merge_path)) {
+  stop("No se encontro la tabla de fusiones canonicas: ", advisor_merge_path)
+}
+
+advisor_merges <- read.csv(
+  advisor_merge_path,
+  stringsAsFactors = FALSE,
+  fileEncoding = "UTF-8",
+  check.names = FALSE
+) %>%
+  as_tibble() %>%
+  mutate(across(c(canonical_variant, canonical_target), ~map_chr(.x, clean_advisor_display))) %>%
+  filter(canonical_variant != "", canonical_target != "") %>%
+  distinct(canonical_variant, canonical_target)
+
+conflicting_merges <- advisor_merges %>%
+  count(canonical_variant, name = "n_targets") %>%
+  filter(n_targets > 1)
+if (nrow(conflicting_merges) > 0) {
+  stop("Hay nombres canonicos con mas de un destino de fusion.")
+}
+
+canonical_merge_map <- setNames(advisor_merges$canonical_target, advisor_merges$canonical_variant)
+resolve_canonical_merge <- function(value) {
+  seen <- character()
+  current <- value
+  repeat {
+    next_value <- unname(canonical_merge_map[current])
+    if (length(next_value) == 0 || is.na(next_value) || next_value == "") break
+    if (current %in% seen) stop("Se detecto un ciclo en asesores_canonicos_merge.csv: ", value)
+    seen <- c(seen, current)
+    current <- next_value
+  }
+  current
+}
+
+advisor_variant_map <- advisor_variant_map %>%
+  mutate(
+    advisor_canonical_premerge = advisor_canonical,
+    advisor_canonical = map_chr(advisor_canonical, resolve_canonical_merge),
+    homologation_method = if_else(
+      advisor_canonical != advisor_canonical_premerge,
+      "fusion_curada",
+      homologation_method
+    )
+  ) %>%
+  select(-advisor_canonical_premerge)
+
+variant_to_canonical <- setNames(advisor_variant_map$advisor_canonical, advisor_variant_map$advisor_raw)
+variant_to_method <- setNames(advisor_variant_map$homologation_method, advisor_variant_map$advisor_raw)
+
+normalize_advisors <- function(value, mapping) {
+  if (is.na(value) || str_squish(value) == "") return(NA_character_)
+  parts <- split_advisor_names(value)
+  mapped <- unname(mapping[parts])
+  mapped[is.na(mapped) | mapped == ""] <- parts[is.na(mapped) | mapped == ""]
+  paste(unique(mapped), collapse = " | ")
+}
+
+tesis <- tesis %>%
+  mutate(
+    asesor_unificado = map_chr(asesor, normalize_advisors, mapping = variant_to_canonical),
+    asesor_homologacion_metodo = map_chr(asesor, normalize_advisors, mapping = variant_to_method)
+  )
+
+unmapped_advisors <- advisor_occurrences %>%
+  left_join(
+    advisor_variant_map %>% select(advisor_raw, advisor_canonical, homologation_method),
+    by = "advisor_raw"
+  ) %>%
+  filter(homologation_method != "alias_explicito") %>%
+  group_by(advisor_raw) %>%
   summarise(
     n_tesis = n(),
-    anio_min = if (all(is.na(anio_pub_meta))) NA_integer_ else min(anio_pub_meta, na.rm = TRUE),
-    anio_max = if (all(is.na(anio_pub_meta))) NA_integer_ else max(anio_pub_meta, na.rm = TRUE),
-    ejemplo_titulo = first(titulo_meta[!is.na(titulo_meta) & titulo_meta != ""], default = NA_character_),
-    advisor_canonical_sugerido = "",
-    notas = "",
+    n_programas = n_distinct(programa),
+    anio_min = if (all(is.na(anio_pub))) NA_integer_ else min(anio_pub, na.rm = TRUE),
+    anio_max = if (all(is.na(anio_pub))) NA_integer_ else max(anio_pub, na.rm = TRUE),
+    programas = paste(sort(unique(programa)), collapse = " | "),
+    ejemplo_titulo = first(titulo[!is.na(titulo) & titulo != ""], default = NA_character_),
+    advisor_canonical_sugerido = first(advisor_canonical),
+    metodo_sugerencia = first(homologation_method),
+    notas = "Revisar y promover a data-raw/asesores_alias.csv si requiere una fusion adicional",
     .groups = "drop"
   ) %>%
   arrange(desc(n_tesis), advisor_raw)
 
-dir.create(advisor_quality_dir, recursive = TRUE, showWarnings = FALSE)
+advisor_catalog <- advisor_occurrences %>%
+  left_join(
+    advisor_variant_map %>% select(advisor_raw, advisor_key, advisor_canonical, homologation_method),
+    by = "advisor_raw"
+  ) %>%
+  group_by(advisor_canonical) %>%
+  summarise(
+    advisor_key = first(advisor_key),
+    n_tesis = n(),
+    n_programas = n_distinct(programa),
+    programas = paste(sort(unique(programa)), collapse = " | "),
+    niveles = paste(sort(unique(nivel)), collapse = " | "),
+    anio_min = if (all(is.na(anio_pub))) NA_integer_ else min(anio_pub, na.rm = TRUE),
+    anio_max = if (all(is.na(anio_pub))) NA_integer_ else max(anio_pub, na.rm = TRUE),
+    n_variantes = n_distinct(advisor_raw),
+    variantes = paste(sort(unique(advisor_raw)), collapse = " | "),
+    metodos = paste(sort(unique(homologation_method)), collapse = " | "),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(n_tesis), advisor_canonical)
 
+advisor_candidates <- advisor_catalog %>%
+  mutate(
+    ordered_key = map_chr(advisor_canonical, advisor_ordered_key),
+    tokens = str_split(ordered_key, "\\s+"),
+    first_initial = map_chr(tokens, ~str_sub(.x[[1]], 1, 1)),
+    last_token = map_chr(tokens, ~tail(.x, 1)),
+    blocking_key = paste(first_initial, last_token, sep = "|")
+  )
+
+empty_candidate_pairs <- tibble(
+  advisor_a = character(),
+  advisor_b = character(),
+  n_tesis_a = integer(),
+  n_tesis_b = integer(),
+  similarity = double(),
+  token_containment = double(),
+  shared_tokens = integer(),
+  union_tokens = integer(),
+  decision = character()
+)
+
+candidate_pairs <- if (nrow(advisor_candidates) < 2) {
+  empty_candidate_pairs
+} else {
+  candidate_rows <- advisor_candidates %>%
+    group_split(blocking_key) %>%
+    map_dfr(function(block) {
+      if (nrow(block) < 2) return(tibble())
+      map_dfr(combn(seq_len(nrow(block)), 2, simplify = FALSE), function(pair) {
+        left <- block[pair[[1]], ]
+        right <- block[pair[[2]], ]
+        left_tokens <- left$tokens[[1]]
+        right_tokens <- right$tokens[[1]]
+        union_size <- length(union(left_tokens, right_tokens))
+        shared_size <- length(intersect(left_tokens, right_tokens))
+        containment <- shared_size / max(1, min(length(left_tokens), length(right_tokens)))
+        similarity <- 1 - as.numeric(adist(left$ordered_key, right$ordered_key)) /
+          max(1, str_length(left$ordered_key), str_length(right$ordered_key))
+
+        if (shared_size >= 2 && (similarity >= 0.82 || containment >= 0.75)) {
+          tibble(
+            advisor_a = left$advisor_canonical,
+            advisor_b = right$advisor_canonical,
+            n_tesis_a = left$n_tesis,
+            n_tesis_b = right$n_tesis,
+            similarity = round(similarity, 3),
+            token_containment = round(containment, 3),
+            shared_tokens = shared_size,
+            union_tokens = union_size,
+            decision = "revisar"
+          )
+        } else {
+          tibble()
+        }
+      })
+    })
+  bind_rows(empty_candidate_pairs, candidate_rows) %>%
+    arrange(desc(similarity), desc(token_containment), advisor_a, advisor_b)
+}
+
+dir.create(advisor_quality_dir, recursive = TRUE, showWarnings = FALSE)
 write.csv(
   unmapped_advisors,
   unmapped_advisors_path,
@@ -261,52 +599,56 @@ write.csv(
   fileEncoding = "UTF-8",
   na = ""
 )
-
-if (nrow(unmapped_advisors) > 0) {
-  message("Asesores sin regla explícita de alias: ", nrow(unmapped_advisors))
-}
-
-message(
-  "Reporte de asesores sin alias explícito: ",
-  normalizePath(unmapped_advisors_path, mustWork = FALSE)
+write.csv(
+  candidate_pairs,
+  advisor_duplicates_path,
+  row.names = FALSE,
+  fileEncoding = "UTF-8",
+  na = ""
 )
+write_parquet(advisor_catalog, advisor_catalog_path)
 
-tesis_meta_unica <- tesis_meta_unica %>%
-  left_join(advisor_aliases, by = c("asesor" = "advisor_raw")) %>%
-  mutate(asesor_unificado = coalesce(advisor_canonical, asesor)) %>%
-  select(-advisor_canonical)
+message("Nombres canonicos de profesorado: ", nrow(advisor_catalog))
+message("Variantes sin alias explicito, pero con canonico deterministico: ", nrow(unmapped_advisors))
+message("Pares aproximados pendientes de revision: ", nrow(candidate_pairs))
 ```
 
+## Validacion y exportacion
 
-Finalmente, exportamos los datos obtenidos
 ```{r}
-output_data_path <- "tesis_lic_economia_cide.parquet"
+tesis <- tesis %>%
+  select(
+    anio_pub, autorx, titulo, resumen, materias,
+    asesor, asesor_unificado, asesor_homologacion_metodo, idioma, tipo_documento, tipo_acceso,
+    derechos, publisher, formato,
+    nivel, programa, grado_programa, coleccion,
+    collection_handle, collection_set, collection_url,
+    item_handle, oai_identifier, oai_datestamp,
+    tiene_resumen, calidad_texto, url
+  ) %>%
+  arrange(nivel, programa, anio_pub, titulo)
 
-tesis_meta_unica <- tesis_meta_unica %>%
-  rename(
-    titulo = titulo_meta,
-    anio_pub = anio_pub_meta,
-    autorx = autor_meta
-  )
+program_summary <- tesis %>%
+  group_by(nivel, programa, grado_programa, coleccion, collection_handle, collection_url) %>%
+  summarise(
+    n_tesis = n(),
+    n_con_resumen = sum(tiene_resumen),
+    cobertura_resumen = mean(tiene_resumen),
+    anio_min = if (all(is.na(anio_pub))) NA_integer_ else min(anio_pub, na.rm = TRUE),
+    anio_max = if (all(is.na(anio_pub))) NA_integer_ else max(anio_pub, na.rm = TRUE),
+    n_idiomas = n_distinct(idioma, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(factor(nivel, levels = c("Licenciatura", "Maestría", "Doctorado")), desc(n_tesis))
 
-tesis_meta_unica <- tesis_meta_unica %>%
-  select(anio_pub, autorx, titulo, resumen, asesor,
-         asesor_unificado, idioma, tipo_acceso, url)
+write_parquet(tesis, output_data_path)
+write_parquet(program_summary, program_inventory_path)
 
-tesis_meta_unica <- tesis_meta_unica %>%
-  arrange(anio_pub)
+message("Tesis exportadas: ", nrow(tesis))
+message("Programas exportados: ", nrow(program_summary))
+message("Cobertura global de resumen: ", sprintf("%.1f%%", 100 * mean(tesis$tiene_resumen)))
+message("Archivo canonico: ", normalizePath(output_data_path, mustWork = FALSE))
+message("Inventario de programas: ", normalizePath(program_inventory_path, mustWork = FALSE))
 
-required_cols <- c("anio_pub", "autorx", "titulo", "resumen", "url")
-missing_required <- required_cols[colSums(is.na(tesis_meta_unica[required_cols])) > 0]
-
-if (length(missing_required) > 0) {
-  stop("Hay columnas requeridas con valores faltantes: ", paste(missing_required, collapse = ", "))
-}
-
-if (anyDuplicated(tesis_meta_unica$url) > 0) {
-  stop("Hay URLs duplicadas; revisar deduplicación antes de exportar.")
-}
-
-write_parquet(tesis_meta_unica, output_data_path)
-message("Archivo Parquet exportado: ", normalizePath(output_data_path, mustWork = FALSE))
+print(program_summary, n = Inf)
 ```

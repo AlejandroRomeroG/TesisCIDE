@@ -1,11 +1,12 @@
-Package: ScrapUMAPTesisLicEcoCIDE
+Package: ScrapUMAPTesisCIDE
 Type: Project
-Title: Scraping and Semantic Map of CIDE Economics Theses
+Title: Harvesting and Semantic Map of CIDE Theses
 Version: 0.0.0.9000
 Authors@R:
     person("Alejandro", "Romero Gonzalez", role = c("aut", "cre"))
-Description: Extracts metadata from CIDE undergraduate economics theses and
-    prepares a Parquet dataset for semantic mapping.
+Description: Harvests metadata from all CIDE undergraduate, masters, and
+    doctoral thesis collections and prepares Parquet datasets for semantic,
+    temporal, program-level, and advisor-network analysis.
 Encoding: UTF-8
 Imports:
     arrow,
@@ -13,7 +14,7 @@ Imports:
     knitr,
     purrr,
     rmarkdown,
-    rvest,
+    stringi,
     stringr,
     tibble,
     xml2
