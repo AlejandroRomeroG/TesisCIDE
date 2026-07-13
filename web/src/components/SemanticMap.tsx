@@ -18,6 +18,7 @@ import { clusterColorRgb } from '../lib/colors'
 interface SemanticMapProps {
   points: ThesisPoint[]
   fitPoints?: ThesisPoint[]
+  highlightedIds?: ReadonlySet<string> | null
   clusters: ClusterSummary[]
   mode: MapMode
   selectedId: string | null
@@ -211,6 +212,7 @@ function fitView(bounds: MapBounds, size: MapSize, mode: MapMode, timelineVisibl
 export function SemanticMap({
   points,
   fitPoints = points,
+  highlightedIds = null,
   clusters,
   mode,
   selectedId,
@@ -264,6 +266,10 @@ export function SemanticMap({
     () => clusters.filter((cluster) => visibleClusterIds.has(cluster.id)),
     [clusters, visibleClusterIds],
   )
+  const highlightedClusterIds = useMemo(() => {
+    if (highlightedIds === null) return null
+    return new Set(points.filter((point) => highlightedIds.has(point.id)).map((point) => point.clusterId))
+  }, [highlightedIds, points])
 
   const layers = useMemo(() => {
     const gridLayer = new LineLayer<GridLine>({
@@ -281,9 +287,18 @@ export function SemanticMap({
     const pointColor = (point: ThesisPoint): [number, number, number, number] => {
         const selected = point.id === selectedId
         const clusterMuted = selectedClusterId !== null && point.clusterId !== selectedClusterId
+        const searchMuted = highlightedIds !== null && !highlightedIds.has(point.id)
         const timelineAlpha = yearCutoff === null ? 220 : point.year === yearCutoff ? 255 : 112
-        const alpha = selected ? 255 : clusterMuted ? 34 : timelineAlpha
+        if (searchMuted && !selected) return [125, 136, 130, 34]
+        const alpha = selected ? 255 : clusterMuted ? 34 : highlightedIds !== null ? 252 : timelineAlpha
         return selected ? [15, 20, 18, 255] : clusterColorRgb(point.clusterId, alpha)
+    }
+
+    const pointScale = (point: ThesisPoint) => {
+      if (point.id === selectedId) return 1.9
+      if (highlightedIds !== null && highlightedIds.has(point.id)) return 1.42
+      if (yearCutoff !== null && point.year === yearCutoff) return 1.45
+      return 1
     }
 
     const pointLayer = mode === '2d'
@@ -293,9 +308,14 @@ export function SemanticMap({
           coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
           getPosition: (point) => [point.x, point.y, 0],
           getFillColor: pointColor,
-          getLineColor: (point) => (point.id === selectedId ? [250, 252, 246, 255] : [250, 252, 246, 130]),
+          getLineColor: (point) => {
+            if (point.id === selectedId) return [250, 252, 246, 255]
+            if (highlightedIds !== null && !highlightedIds.has(point.id)) return [210, 216, 211, 24]
+            return [250, 252, 246, 150]
+          },
           getRadius: (point) => {
             if (point.id === selectedId) return 9
+            if (highlightedIds !== null && highlightedIds.has(point.id)) return 6.8
             if (yearCutoff !== null && point.year === yearCutoff) return 6.6
             return 4.6
           },
@@ -307,9 +327,9 @@ export function SemanticMap({
           autoHighlight: true,
           highlightColor: [15, 20, 18, 70],
           updateTriggers: {
-            getFillColor: [selectedId, selectedClusterId, yearCutoff],
-            getRadius: [selectedId, yearCutoff],
-            getLineColor: [selectedId],
+            getFillColor: [highlightedIds, selectedId, selectedClusterId, yearCutoff],
+            getRadius: [highlightedIds, selectedId, yearCutoff],
+            getLineColor: [highlightedIds, selectedId],
             getLineWidth: [selectedId],
           },
           transitions: {
@@ -326,9 +346,8 @@ export function SemanticMap({
           getPosition: (point) => [point.x, point.y, point.z],
           getColor: pointColor,
           getScale: (point) => {
-            if (point.id === selectedId) return [1.9, 1.9, 1.9]
-            if (yearCutoff !== null && point.year === yearCutoff) return [1.45, 1.45, 1.45]
-            return [1, 1, 1]
+            const scale = pointScale(point)
+            return [scale, scale, scale]
           },
           material: {
             ambient: 0.42,
@@ -340,8 +359,8 @@ export function SemanticMap({
           autoHighlight: true,
           highlightColor: [255, 255, 255, 90],
           updateTriggers: {
-            getColor: [selectedId, selectedClusterId, yearCutoff],
-            getScale: [selectedId, yearCutoff],
+            getColor: [highlightedIds, selectedId, selectedClusterId, yearCutoff],
+            getScale: [highlightedIds, selectedId, yearCutoff],
           },
           transitions: {
             getColor: 260,
@@ -355,8 +374,12 @@ export function SemanticMap({
           data: visibleClusters,
           coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
           getPosition: (cluster) => [cluster.centroid[0], cluster.centroid[1], 0],
-          getFillColor: [247, 248, 243, 210],
-          getLineColor: (cluster) => clusterColorRgb(cluster.id, 230),
+          getFillColor: (cluster) => highlightedClusterIds !== null && !highlightedClusterIds.has(cluster.id)
+            ? [234, 237, 232, 82]
+            : [247, 248, 243, 220],
+          getLineColor: (cluster) => highlightedClusterIds !== null && !highlightedClusterIds.has(cluster.id)
+            ? [126, 135, 130, 72]
+            : clusterColorRgb(cluster.id, 240),
           getRadius: 12,
           radiusUnits: 'pixels',
           lineWidthUnits: 'pixels',
@@ -365,6 +388,10 @@ export function SemanticMap({
           pickable: true,
           autoHighlight: true,
           highlightColor: [255, 255, 255, 120],
+          updateTriggers: {
+            getFillColor: [highlightedClusterIds],
+            getLineColor: [highlightedClusterIds],
+          },
         })
       : new SimpleMeshLayer<ClusterSummary>({
           id: 'cluster-spheres-3d',
@@ -377,7 +404,9 @@ export function SemanticMap({
             cluster.centroid[1],
             cluster.centroid[2] + 0.16,
           ],
-          getColor: (cluster) => clusterColorRgb(cluster.id, 255),
+          getColor: (cluster) => highlightedClusterIds !== null && !highlightedClusterIds.has(cluster.id)
+            ? [126, 135, 130, 60]
+            : clusterColorRgb(cluster.id, 255),
           material: {
             ambient: 0.38,
             diffuse: 0.72,
@@ -387,6 +416,9 @@ export function SemanticMap({
           pickable: true,
           autoHighlight: true,
           highlightColor: [255, 255, 255, 110],
+          updateTriggers: {
+            getColor: [highlightedClusterIds],
+          },
         })
 
     const labelLayer = new TextLayer<ClusterSummary>({
@@ -399,7 +431,11 @@ export function SemanticMap({
         mode === '3d' ? cluster.centroid[2] + 0.18 : 0,
       ],
       getText: (cluster) => String(cluster.id).padStart(2, '0'),
-      getColor: mode === '3d' ? [255, 255, 255, 255] : [17, 24, 21, 255],
+      getColor: (cluster) => {
+        const muted = highlightedClusterIds !== null && !highlightedClusterIds.has(cluster.id)
+        if (mode === '3d') return muted ? [224, 229, 225, 96] : [255, 255, 255, 255]
+        return muted ? [90, 100, 94, 96] : [17, 24, 21, 255]
+      },
       getSize: 11,
       sizeUnits: 'pixels',
       fontFamily: 'Manrope Variable, sans-serif',
@@ -412,10 +448,13 @@ export function SemanticMap({
       billboard: true,
       pickable: true,
       parameters: { depthCompare: 'always' },
+      updateTriggers: {
+        getColor: [highlightedClusterIds, mode],
+      },
     })
 
     return [gridLayer, pointLayer, centroidLayer, labelLayer]
-  }, [mode, points, selectedClusterId, selectedId, visibleClusters, yearCutoff])
+  }, [highlightedClusterIds, highlightedIds, mode, points, selectedClusterId, selectedId, visibleClusters, yearCutoff])
 
   const view = mode === '2d'
     ? new OrthographicView({ id: 'semantic-2d', controller: true, flipY: false })
@@ -477,6 +516,8 @@ export function SemanticMap({
       data-fit-zoom={fitState.zoom.toFixed(4)}
       data-fit-target-x={fitState.target[0].toFixed(4)}
       data-fit-target-y={fitState.target[1].toFixed(4)}
+      data-point-count={points.length}
+      data-highlight-count={highlightedIds?.size ?? points.length}
       onPointerDownCapture={handlePointerDown}
       onPointerUpCapture={handlePointerUp}
     >

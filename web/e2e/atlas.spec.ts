@@ -62,15 +62,44 @@ async function saveScreenshot(page: Page, testInfo: TestInfo, name: string) {
   await page.screenshot({ path: testInfo.outputPath(name), fullPage: true })
 }
 
+function activeSemanticMap(page: Page) {
+  return page.locator('.preserved-view.is-active .semantic-map')
+}
+
+function activeSemanticCanvas(page: Page) {
+  return activeSemanticMap(page).locator('canvas').last()
+}
+
+function activeMapReadout(page: Page) {
+  return page.locator('.preserved-view.is-active .map-readout')
+}
+
+function activeMapStage(page: Page) {
+  return page.locator('.preserved-view.is-active .map-stage')
+}
+
 test('desktop atlas renders every analytical surface and animation control', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto('/')
 
   await expect(page.getByRole('heading', { name: 'Mapa semántico', exact: true })).toBeVisible()
   await expect(page.getByText('2,388').first()).toBeVisible()
-  await expectCanvasHasContent(page.locator('.semantic-map canvas').last())
+  await expectCanvasHasContent(activeSemanticCanvas(page))
   await expectNoDocumentOverflow(page)
   await saveScreenshot(page, testInfo, 'atlas-desktop-map.png')
+
+  const search = page.getByRole('searchbox', { name: 'Buscar tesis, autor, asesor o tema' })
+  await search.fill('pandemia')
+  await expect(activeSemanticMap(page)).toHaveAttribute('data-point-count', '2388')
+  const highlighted = Number(await activeSemanticMap(page).getAttribute('data-highlight-count'))
+  expect(highlighted).toBeGreaterThan(0)
+  expect(highlighted).toBeLessThan(2388)
+  await expect(activeMapReadout(page)).toContainText('coincidencias')
+  await expect(activeMapReadout(page)).toContainText('2,388 tesis en contexto')
+  await expectCanvasHasContent(activeSemanticCanvas(page), 6)
+  await saveScreenshot(page, testInfo, 'atlas-desktop-search-focus.png')
+  await page.getByRole('button', { name: 'Limpiar búsqueda' }).click()
+  await expect(activeSemanticMap(page)).toHaveAttribute('data-highlight-count', '2388')
 
   const edgePoint = await page.evaluate(async () => {
     const response = await fetch('/data/atlas.json')
@@ -79,20 +108,21 @@ test('desktop atlas renders every analytical surface and animation control', asy
       (rightmost: { x: number; y: number }, point: { x: number; y: number }) => point.x > rightmost.x ? point : rightmost,
     ) as { x: number; y: number }
   })
-  const fit = await page.locator('.semantic-map').evaluate((element) => ({
+  const fit = await activeSemanticMap(page).evaluate((element) => ({
     zoom: Number((element as HTMLElement).dataset.fitZoom),
     targetX: Number((element as HTMLElement).dataset.fitTargetX),
     targetY: Number((element as HTMLElement).dataset.fitTargetY),
   }))
-  const mapBox = await page.locator('.semantic-map').boundingBox()
+  const mapBox = await activeSemanticMap(page).boundingBox()
   expect(mapBox).not.toBeNull()
   const scale = 2 ** fit.zoom
   await page.mouse.move(
     mapBox!.x + mapBox!.width / 2 + (edgePoint.x - fit.targetX) * scale,
     mapBox!.y + mapBox!.height / 2 - (edgePoint.y - fit.targetY) * scale,
   )
-  await expect(page.locator('.deck-tooltip')).toBeVisible()
-  const tooltipBox = await page.locator('.deck-tooltip').boundingBox()
+  const tooltip = activeSemanticMap(page).locator('.deck-tooltip')
+  await expect(tooltip).toBeVisible()
+  const tooltipBox = await tooltip.boundingBox()
   expect(tooltipBox).not.toBeNull()
   expect(tooltipBox!.x).toBeGreaterThanOrEqual(mapBox!.x - 1)
   expect(tooltipBox!.y).toBeGreaterThanOrEqual(mapBox!.y - 1)
@@ -100,36 +130,48 @@ test('desktop atlas renders every analytical surface and animation control', asy
   expect(tooltipBox!.y + tooltipBox!.height).toBeLessThanOrEqual(mapBox!.y + mapBox!.height + 1)
   await saveScreenshot(page, testInfo, 'atlas-edge-tooltip.png')
 
-  await page.locator('.semantic-map canvas').last().hover()
+  await activeSemanticCanvas(page).hover()
   await page.mouse.wheel(0, -650)
   await page.waitForTimeout(450)
   await saveScreenshot(page, testInfo, 'atlas-desktop-2d-close.png')
   await page.reload()
-  await expectCanvasHasContent(page.locator('.semantic-map canvas').last())
+  await expectCanvasHasContent(activeSemanticCanvas(page))
 
   await page.getByRole('button', { name: /Crimen, violencia y seguridad/ }).click()
-  await expect(page.locator('.map-readout strong')).toHaveText('154')
-  await expectCanvasHasContent(page.locator('.semantic-map canvas').last())
-  const canvasBox = await page.locator('.semantic-map canvas').last().boundingBox()
+  await expect(activeMapReadout(page).locator('strong')).toHaveText('154')
+  await expectCanvasHasContent(activeSemanticCanvas(page))
+  const canvasBox = await activeSemanticCanvas(page).boundingBox()
   expect(canvasBox).not.toBeNull()
   await page.mouse.click(canvasBox!.x + canvasBox!.width / 2, canvasBox!.y + 24)
-  await expect(page.locator('.map-readout strong')).toHaveText('2,388')
+  await expect(activeMapReadout(page).locator('strong')).toHaveText('2,388')
   await expect(page.getByRole('heading', { name: 'Explora por tema' })).toBeVisible()
 
   await page.getByRole('button', { name: '3D', exact: true }).click()
-  await expectCanvasHasContent(page.locator('.semantic-map canvas').last())
+  await expectCanvasHasContent(activeSemanticCanvas(page))
   await saveScreenshot(page, testInfo, 'atlas-desktop-3d.png')
-  await page.locator('.semantic-map canvas').last().hover()
+  await activeSemanticCanvas(page).hover()
   await page.mouse.wheel(0, -650)
   await page.waitForTimeout(450)
   await saveScreenshot(page, testInfo, 'atlas-desktop-3d-close.png')
+
+  await page.getByRole('button', { name: 'Programas', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Programas', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Mapa', exact: true }).click()
+  await expect(page.getByRole('button', { name: '3D', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expectCanvasHasContent(activeSemanticCanvas(page))
 
   await page.getByRole('button', { name: 'Tiempo', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'El mapa a través del tiempo' })).toBeVisible()
   const year = page.locator('.timeline-year strong')
   await expect(year).toHaveText('2026')
+  const yearSlider = page.getByRole('slider', { name: 'Año de corte' })
+  await yearSlider.press('Home')
+  await expect(year).toHaveText('1978')
+  await yearSlider.press('ArrowRight')
+  await expect(year).toHaveText('1994')
+  await expect(page.locator('.timeline-jump-notice')).toContainText('Salto de 16 años')
   await page.getByRole('button', { name: 'Reproducir película' }).click()
-  await expect(year).not.toHaveText('2026')
+  await expect(year).not.toHaveText('1994')
   await page.getByRole('button', { name: 'Pausar película' }).click()
 
   await page.getByRole('button', { name: 'Programas', exact: true }).click()
@@ -149,6 +191,12 @@ test('desktop atlas renders every analytical surface and animation control', asy
   await expectCanvasHasContent(page.locator('.faculty-chart canvas').last())
   await expectPlotFitsViewport(page, '.faculty-chart')
   await saveScreenshot(page, testInfo, 'atlas-desktop-faculty.png')
+
+  await page.getByRole('button', { name: 'Método', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Cómo se construyó el atlas', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Una cadena reproducible, con la fuente siempre a la vista' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Consultar el Repositorio Digital CIDE' })).toHaveAttribute('href', 'https://repositorio-digital.cide.edu')
+  await saveScreenshot(page, testInfo, 'atlas-desktop-methodology.png')
 })
 
 test('mobile atlas reflows without document overflow or control collisions', async ({ page }, testInfo) => {
@@ -156,11 +204,11 @@ test('mobile atlas reflows without document overflow or control collisions', asy
   await page.goto('/')
 
   await expect(page.getByRole('heading', { name: 'Mapa semántico', exact: true })).toBeVisible()
-  await expectCanvasHasContent(page.locator('.semantic-map canvas').last())
+  await expectCanvasHasContent(activeSemanticCanvas(page))
   await expectNoDocumentOverflow(page)
 
   const navigation = await page.locator('.side-navigation').boundingBox()
-  const stage = await page.locator('.map-stage').boundingBox()
+  const stage = await activeMapStage(page).boundingBox()
   expect(navigation).not.toBeNull()
   expect(stage).not.toBeNull()
   expect(navigation!.y).toBeGreaterThanOrEqual(stage!.y + stage!.height - 1)
@@ -168,11 +216,13 @@ test('mobile atlas reflows without document overflow or control collisions', asy
 
   await page.getByRole('button', { name: 'Tiempo', exact: true }).click()
   const dock = await page.locator('.timeline-dock').boundingBox()
-  const timeStage = await page.locator('.map-stage').boundingBox()
+  const timeStage = await activeMapStage(page).boundingBox()
   expect(dock).not.toBeNull()
   expect(timeStage).not.toBeNull()
   expect(dock!.y).toBeGreaterThanOrEqual(timeStage!.y)
   expect(dock!.y + dock!.height).toBeLessThanOrEqual(timeStage!.y + timeStage!.height + 1)
+  await expect(page.locator('.range-gap')).toContainText('salto 16 años')
+  await saveScreenshot(page, testInfo, 'atlas-mobile-time.png')
 
   await page.getByRole('button', { name: 'Programas', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Programas', exact: true })).toBeVisible()
@@ -197,20 +247,26 @@ test('mobile atlas reflows without document overflow or control collisions', asy
 
   await page.getByRole('button', { name: 'Programas', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Programas', exact: true })).toBeVisible()
-  for (const label of ['Mapa', 'Tiempo', 'Programas', 'Temas', 'Profesorado']) {
+  for (const label of ['Mapa', 'Tiempo', 'Programas', 'Temas', 'Profesorado', 'Método']) {
     await expect(page.getByRole('button', { name: label, exact: true })).toBeVisible()
   }
   await saveScreenshot(page, testInfo, 'atlas-mobile-program-detail.png')
+
+  await page.getByRole('button', { name: 'Método', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Cómo se construyó el atlas', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Una cadena reproducible, con la fuente siempre a la vista' })).toBeVisible()
+  await expectNoDocumentOverflow(page)
+  await saveScreenshot(page, testInfo, 'atlas-mobile-methodology.png')
 })
 
 test('small portrait and landscape plots stay inside the visible frame', async ({ page }) => {
   for (const viewport of [{ width: 320, height: 568 }, { width: 844, height: 390 }]) {
     await page.setViewportSize(viewport)
     await page.goto('/')
-    await expectCanvasHasContent(page.locator('.semantic-map canvas').last())
+    await expectCanvasHasContent(activeSemanticCanvas(page))
 
     const navigation = await page.locator('.side-navigation').boundingBox()
-    const stage = await page.locator('.map-stage').boundingBox()
+    const stage = await activeMapStage(page).boundingBox()
     expect(navigation).not.toBeNull()
     expect(stage).not.toBeNull()
     expect(stage!.y + stage!.height).toBeLessThanOrEqual(navigation!.y + 1)

@@ -64,40 +64,68 @@ export function AtlasMapView({
     () => [...new Set(points.map((point) => point.degreeProgram))].sort((a, b) => a.localeCompare(b, 'es')),
     [points],
   )
-
-  const query = normalizeSearch(filters.query)
-  const preClusterPoints = useMemo(
-    () => points.filter((point) => {
-      if (filters.level && point.level !== filters.level) return false
-      if (filters.program && point.degreeProgram !== filters.program) return false
-      if (!query) return true
-      return normalizeSearch([
-        point.title,
-        point.author,
-        point.advisor ?? '',
-        point.program,
-        point.clusterTheme,
-        point.subtopic,
-      ].join(' ')).includes(query)
-    }),
-    [filters.level, filters.program, points, query],
+  const timelineYears = useMemo(
+    () => Object.entries(analytics.meta.yearTotals)
+      .filter(([, count]) => count > 0)
+      .map(([value]) => Number(value))
+      .sort((a, b) => a - b),
+    [analytics.meta.yearTotals],
   )
 
+  const query = normalizeSearch(filters.query)
+  const structuralPoints = useMemo(
+    () => points.filter((point) => (
+      (!filters.level || point.level === filters.level)
+      && (!filters.program || point.degreeProgram === filters.program)
+    )),
+    [filters.level, filters.program, points],
+  )
+
+  const searchMatchIds = useMemo(() => {
+    if (!query) return null
+    return new Set(
+      structuralPoints
+        .filter((point) => normalizeSearch([
+          point.title,
+          point.author,
+          point.advisor ?? '',
+          point.program,
+          point.clusterTheme,
+          point.subtopic,
+        ].join(' ')).includes(query))
+        .map((point) => point.id),
+    )
+  }, [query, structuralPoints])
+
   const filteredPoints = useMemo(
-    () => preClusterPoints.filter((point) => filters.clusterId === null || point.clusterId === filters.clusterId),
-    [filters.clusterId, preClusterPoints],
+    () => structuralPoints.filter((point) => filters.clusterId === null || point.clusterId === filters.clusterId),
+    [filters.clusterId, structuralPoints],
   )
 
   const displayedPoints = useMemo(
     () => timelineMode ? filteredPoints.filter((point) => point.year <= year) : filteredPoints,
     [filteredPoints, timelineMode, year],
   )
+  const displayedMatchIds = useMemo(
+    () => searchMatchIds === null
+      ? null
+      : new Set(displayedPoints.filter((point) => searchMatchIds.has(point.id)).map((point) => point.id)),
+    [displayedPoints, searchMatchIds],
+  )
 
   const clusterCounts = useMemo(() => {
     const counts = new Map<number, number>()
-    for (const point of preClusterPoints) counts.set(point.clusterId, (counts.get(point.clusterId) ?? 0) + 1)
+    for (const point of structuralPoints) counts.set(point.clusterId, (counts.get(point.clusterId) ?? 0) + 1)
     return counts
-  }, [preClusterPoints])
+  }, [structuralPoints])
+  const clusterMatchCounts = useMemo(() => {
+    const counts = new Map<number, number>()
+    if (searchMatchIds === null) return counts
+    for (const point of structuralPoints) {
+      if (searchMatchIds.has(point.id)) counts.set(point.clusterId, (counts.get(point.clusterId) ?? 0) + 1)
+    }
+    return counts
+  }, [searchMatchIds, structuralPoints])
 
   const yearStats = useMemo(() => {
     const newThisYear = filteredPoints.filter((point) => point.year === year).length
@@ -114,21 +142,27 @@ export function AtlasMapView({
     return { newThisYear, accumulated, topClusters }
   }, [analytics.clusters, filteredPoints, year])
 
+  const yearIndex = Math.max(0, timelineYears.indexOf(year))
+  const previousTimelineYear = yearIndex > 0 ? timelineYears[yearIndex - 1] : year
+  const currentYearGap = year - previousTimelineYear
+  const firstYearGap = timelineYears.length > 1 ? timelineYears[1] - timelineYears[0] : 0
+
   const activeFilterCount = [filters.level, filters.program, filters.clusterId].filter((value) => value !== '' && value !== null).length
 
   useEffect(() => {
     if (!playing || !timelineMode) return
     const timer = window.setInterval(() => {
       setYear((current) => {
-        if (current >= analytics.meta.yearMax) {
+        const currentIndex = Math.max(0, timelineYears.indexOf(current))
+        if (currentIndex >= timelineYears.length - 1) {
           setPlaying(false)
           return current
         }
-        return current + 1
+        return timelineYears[currentIndex + 1]
       })
-    }, 520)
+    }, 650)
     return () => window.clearInterval(timer)
-  }, [analytics.meta.yearMax, playing, timelineMode])
+  }, [playing, timelineMode, timelineYears])
 
   useEffect(() => {
     if (!selected) {
@@ -159,7 +193,7 @@ export function AtlasMapView({
   }
 
   function togglePlayback() {
-    if (!playing && year >= analytics.meta.yearMax) setYear(analytics.meta.yearMin)
+    if (!playing && year >= timelineYears[timelineYears.length - 1]) setYear(timelineYears[0])
     setPlaying((value) => !value)
   }
 
@@ -253,6 +287,7 @@ export function AtlasMapView({
             <SemanticMap
               points={displayedPoints}
               fitPoints={filteredPoints}
+              highlightedIds={displayedMatchIds}
               clusters={analytics.clusters}
               mode={mode}
               selectedId={selected?.id ?? null}
@@ -260,13 +295,18 @@ export function AtlasMapView({
               yearCutoff={timelineMode ? year : null}
               onSelect={onSelect}
               onClusterSelect={(clusterId) => updateFilter('clusterId', clusterId)}
-              ariaLabel={`${formatNumber(displayedPoints.length)} tesis visibles en mapa semántico ${mode.toUpperCase()}`}
+              ariaLabel={displayedMatchIds === null
+                ? `${formatNumber(displayedPoints.length)} tesis visibles en mapa semántico ${mode.toUpperCase()}`
+                : `${formatNumber(displayedMatchIds.size)} coincidencias entre ${formatNumber(displayedPoints.length)} tesis en mapa semántico ${mode.toUpperCase()}`}
             />
           </Suspense>
 
-          <div className="map-readout" aria-live="polite">
-            <strong>{formatNumber(displayedPoints.length)}</strong>
-            <span>tesis visibles</span>
+          <div className="map-readout" aria-live="polite" data-search-active={displayedMatchIds !== null || undefined}>
+            <strong>{formatNumber(displayedMatchIds?.size ?? displayedPoints.length)}</strong>
+            <span>
+              {displayedMatchIds === null ? 'tesis visibles' : 'coincidencias'}
+              {displayedMatchIds !== null && <small>{formatNumber(displayedPoints.length)} tesis en contexto</small>}
+            </span>
           </div>
 
           <div className="map-mode-hint">
@@ -274,41 +314,60 @@ export function AtlasMapView({
           </div>
 
           {timelineMode && (
-            <div className="timeline-dock">
-              <button
-                className="play-button"
-                type="button"
-                aria-label={playing ? 'Pausar película' : 'Reproducir película'}
-                onClick={togglePlayback}
-              >
-                {playing ? <Pause size={20} aria-hidden="true" /> : <Play size={20} fill="currentColor" aria-hidden="true" />}
-              </button>
-              <div className="timeline-year">
-                <span>Año</span>
-                <strong>{year}</strong>
+            <>
+              <AnimatePresence initial={false}>
+                {currentYearGap > 1 && (
+                  <motion.div
+                    className="timeline-jump-notice"
+                    key={`${previousTimelineYear}-${year}`}
+                    initial={{ opacity: 0, y: 7 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -5 }}
+                    transition={{ duration: 0.24 }}
+                    aria-live="polite"
+                  >
+                    <span aria-hidden="true">//</span>
+                    Salto de {currentYearGap} años · no hay tesis registradas entre ambos cortes
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              <div className="timeline-dock">
+                <button
+                  className="play-button"
+                  type="button"
+                  aria-label={playing ? 'Pausar película' : 'Reproducir película'}
+                  onClick={togglePlayback}
+                >
+                  {playing ? <Pause size={20} aria-hidden="true" /> : <Play size={20} fill="currentColor" aria-hidden="true" />}
+                </button>
+                <div className="timeline-year">
+                  <span>Año</span>
+                  <strong>{year}</strong>
+                </div>
+                <label className="timeline-range">
+                  <span className="sr-only">Año de corte</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={timelineYears.length - 1}
+                    value={yearIndex}
+                    onChange={(event) => {
+                      setPlaying(false)
+                      setYear(timelineYears[Number(event.target.value)])
+                    }}
+                  />
+                  <span className="range-labels">
+                    <span>{timelineYears[0]}</span>
+                    {firstYearGap > 1 && <span className="range-gap"><b aria-hidden="true">//</b> salto {firstYearGap} años</span>}
+                    <span>{timelineYears[timelineYears.length - 1]}</span>
+                  </span>
+                </label>
+                <div className="timeline-counts">
+                  <span><strong>{formatNumber(yearStats.newThisYear)}</strong> nuevas</span>
+                  <span><strong>{formatNumber(yearStats.accumulated)}</strong> acumuladas</span>
+                </div>
               </div>
-              <label className="timeline-range">
-                <span className="sr-only">Año de corte</span>
-                <input
-                  type="range"
-                  min={analytics.meta.yearMin}
-                  max={analytics.meta.yearMax}
-                  value={year}
-                  onChange={(event) => {
-                    setPlaying(false)
-                    setYear(Number(event.target.value))
-                  }}
-                />
-                <span className="range-labels">
-                  <span>{analytics.meta.yearMin}</span>
-                  <span>{analytics.meta.yearMax}</span>
-                </span>
-              </label>
-              <div className="timeline-counts">
-                <span><strong>{formatNumber(yearStats.newThisYear)}</strong> nuevas</span>
-                <span><strong>{formatNumber(yearStats.accumulated)}</strong> acumuladas</span>
-              </div>
-            </div>
+            </>
           )}
         </div>
 
@@ -412,7 +471,14 @@ export function AtlasMapView({
                         onClick={() => updateFilter('clusterId', cluster.id)}
                       >
                         <span className="rank-index" style={{ backgroundColor: clusterColor(cluster.id) }}>{String(cluster.id).padStart(2, '0')}</span>
-                        <span className="rank-copy"><strong>{cluster.theme}</strong><small>{formatNumber(clusterCounts.get(cluster.id) ?? 0)} visibles</small></span>
+                        <span className="rank-copy">
+                          <strong>{cluster.theme}</strong>
+                          <small>
+                            {searchMatchIds === null
+                              ? `${formatNumber(clusterCounts.get(cluster.id) ?? 0)} visibles`
+                              : `${formatNumber(clusterMatchCounts.get(cluster.id) ?? 0)} coincidencias · ${formatNumber(clusterCounts.get(cluster.id) ?? 0)} en contexto`}
+                          </small>
+                        </span>
                         <ChevronRight size={16} aria-hidden="true" />
                       </button>
                     </li>

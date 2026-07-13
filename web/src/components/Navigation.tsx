@@ -1,4 +1,5 @@
 import {
+  BookOpenText,
   CircleDotDashed,
   Clock3,
   Grid3X3,
@@ -18,6 +19,7 @@ const ITEMS: Array<{ id: ViewId; label: string; icon: typeof Map }> = [
   { id: 'programs', label: 'Programas', icon: Grid3X3 },
   { id: 'topics', label: 'Temas', icon: CircleDotDashed },
   { id: 'faculty', label: 'Profesorado', icon: Users },
+  { id: 'methodology', label: 'Método', icon: BookOpenText },
 ]
 
 export function Navigation({ activeView, onChange }: NavigationProps) {
@@ -36,8 +38,10 @@ export function Navigation({ activeView, onChange }: NavigationProps) {
         ))}
       </nav>
       <div className="source-seal">
-        <span aria-hidden="true" />
-        <p>Datos verificados<br />OAI-PMH · Parquet</p>
+        <a href="https://repositorio-digital.cide.edu" target="_blank" rel="noreferrer">
+          <span aria-hidden="true" />
+          <p><strong>Fuente oficial</strong>Repositorio Digital CIDE</p>
+        </a>
       </div>
     </aside>
   )

@@ -14,7 +14,7 @@ El proyecto usa Parquet como formato único de datos tabulares persistidos.
 
 ## Atlas Web
 
-La experiencia recomendada vive en `web/`: una aplicación responsive con mapa WebGL 2D/3D, película temporal, matrices por programa, territorios temáticos y perfiles de profesorado. Los Parquet siguen siendo la fuente canónica; `scripts/export_web_data.py` genera únicamente las columnas necesarias para el navegador y detiene el build si no reconcilian identificadores, conteos o participaciones.
+La experiencia recomendada vive en `web/`: una aplicación responsive con mapa WebGL 2D/3D, película temporal, matrices por programa, territorios temáticos, perfiles de profesorado y una vista metodológica completa. Los Parquet siguen siendo la fuente canónica; `scripts/export_web_data.py` genera únicamente las columnas necesarias para el navegador y detiene el build si no reconcilian identificadores, conteos o participaciones.
 
 **Sitio público:** [Atlas de Tesis CIDE](https://alejandroromerog.github.io/ScrapUMAP_TesisLicEcoCIDE/)
 

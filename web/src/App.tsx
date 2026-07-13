@@ -1,5 +1,4 @@
 import { lazy, Suspense, useState } from 'react'
-import { AnimatePresence, motion } from 'motion/react'
 import { AlertCircle, Database, GraduationCap, Network, Orbit } from 'lucide-react'
 import { Navigation } from './components/Navigation'
 import { AtlasMapView } from './components/AtlasMapView'
@@ -29,11 +28,16 @@ const VIEW_COPY: Record<ViewId, { title: string; subtitle: string }> = {
     title: 'Profesorado',
     subtitle: 'Volumen de asesoría, amplitud temática y conexiones entre programas.',
   },
+  methodology: {
+    title: 'Cómo se construyó el atlas',
+    subtitle: 'Fuente, procesamiento, modelos, validaciones y límites de interpretación.',
+  },
 }
 
 const ProgramsView = lazy(() => import('./components/ProgramsView').then((module) => ({ default: module.ProgramsView })))
 const TopicsView = lazy(() => import('./components/TopicsView').then((module) => ({ default: module.TopicsView })))
 const FacultyView = lazy(() => import('./components/FacultyView').then((module) => ({ default: module.FacultyView })))
+const MethodologyView = lazy(() => import('./components/MethodologyView').then((module) => ({ default: module.MethodologyView })))
 
 const INITIAL_FILTERS: AtlasFilters = { query: '', level: '', program: '', clusterId: null }
 
@@ -72,6 +76,7 @@ function App() {
   }
 
   const viewCopy = VIEW_COPY[activeView]
+  const mapViewActive = activeView === 'map' || activeView === 'time'
   const stats = [
     { label: 'Tesis', value: formatNumber(analytics.meta.thesisCount), icon: Database },
     { label: 'Programas', value: String(analytics.meta.programCount), icon: GraduationCap },
@@ -109,45 +114,46 @@ function App() {
           </div>
         </header>
 
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            className="view-transition"
-            key={activeView}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -5 }}
-            transition={{ duration: 0.2 }}
+        <div className="view-transition">
+          <div
+            className={`preserved-view${mapViewActive ? ' is-active' : ''}`}
+            aria-hidden={!mapViewActive}
+            inert={!mapViewActive}
           >
-            <Suspense fallback={<LoadingView />}>
-              {activeView === 'map' && (
-                <AtlasMapView
-                  points={atlas.points}
-                  analytics={analytics}
-                  filters={filters}
-                  onFiltersChange={setFilters}
-                  selected={selectedThesis}
-                  onSelect={setSelectedThesis}
-                  loadDetails={loadDetails}
-                />
-              )}
-              {activeView === 'time' && (
-                <AtlasMapView
-                  points={atlas.points}
-                  analytics={analytics}
-                  filters={filters}
-                  onFiltersChange={setFilters}
-                  selected={selectedThesis}
-                  onSelect={setSelectedThesis}
-                  loadDetails={loadDetails}
-                  timelineMode
-                />
-              )}
-              {activeView === 'programs' && <ProgramsView analytics={analytics} />}
-              {activeView === 'topics' && <TopicsView analytics={analytics} />}
-              {activeView === 'faculty' && <FacultyView analytics={analytics} />}
-            </Suspense>
-          </motion.div>
-        </AnimatePresence>
+            <AtlasMapView
+              points={atlas.points}
+              analytics={analytics}
+              filters={filters}
+              onFiltersChange={setFilters}
+              selected={selectedThesis}
+              onSelect={setSelectedThesis}
+              loadDetails={loadDetails}
+              timelineMode={activeView === 'time'}
+            />
+          </div>
+          <Suspense fallback={<LoadingView />}>
+            {activeView === 'programs' && (
+              <div className="transient-view">
+                <ProgramsView analytics={analytics} />
+              </div>
+            )}
+            {activeView === 'topics' && (
+              <div className="transient-view">
+                <TopicsView analytics={analytics} />
+              </div>
+            )}
+            {activeView === 'faculty' && (
+              <div className="transient-view">
+                <FacultyView analytics={analytics} />
+              </div>
+            )}
+            {activeView === 'methodology' && (
+              <div className="transient-view">
+                <MethodologyView meta={analytics.meta} />
+              </div>
+            )}
+          </Suspense>
+        </div>
       </main>
     </div>
   )
