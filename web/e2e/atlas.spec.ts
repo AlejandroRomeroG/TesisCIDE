@@ -58,6 +58,39 @@ async function expectPlotFitsViewport(page: Page, selector: string) {
   expect(metrics.bottom).toBeLessThanOrEqual(metrics.navigationTop + 1)
 }
 
+async function expectChartTooltipContained(page: Page, selector: string) {
+  const chart = page.locator(selector)
+  const chartBox = await chart.boundingBox()
+  expect(chartBox).not.toBeNull()
+  const tooltip = chart.locator('.atlas-chart-tooltip')
+  let found = false
+
+  for (let yStep = 1; yStep <= 9 && !found; yStep += 1) {
+    for (let xStep = 9; xStep >= 1 && !found; xStep -= 1) {
+      await page.mouse.move(
+        chartBox!.x + chartBox!.width * xStep / 10,
+        chartBox!.y + chartBox!.height * yStep / 10,
+      )
+      await page.waitForTimeout(20)
+      found = await tooltip.isVisible().catch(() => false)
+    }
+  }
+
+  expect(found).toBe(true)
+  const tooltipBox = await tooltip.boundingBox()
+  expect(tooltipBox).not.toBeNull()
+  expect(tooltipBox!.x).toBeGreaterThanOrEqual(chartBox!.x + 7)
+  expect(tooltipBox!.y).toBeGreaterThanOrEqual(chartBox!.y + 7)
+  expect(tooltipBox!.x + tooltipBox!.width).toBeLessThanOrEqual(chartBox!.x + chartBox!.width - 7)
+  expect(tooltipBox!.y + tooltipBox!.height).toBeLessThanOrEqual(chartBox!.y + chartBox!.height - 7)
+  const style = await tooltip.evaluate((element) => {
+    const computed = getComputedStyle(element)
+    return { maxWidth: Number.parseFloat(computed.maxWidth), whiteSpace: computed.whiteSpace }
+  })
+  expect(style.maxWidth).toBeLessThanOrEqual(Math.min(320, chartBox!.width - 16) + 1)
+  expect(style.whiteSpace).toBe('normal')
+}
+
 async function saveScreenshot(page: Page, testInfo: TestInfo, name: string) {
   await page.screenshot({ path: testInfo.outputPath(name), fullPage: true })
 }
@@ -79,6 +112,7 @@ function activeMapStage(page: Page) {
 }
 
 test('desktop atlas renders every analytical surface and animation control', async ({ page }, testInfo) => {
+  test.slow()
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto('/')
 
@@ -169,7 +203,8 @@ test('desktop atlas renders every analytical surface and animation control', asy
   await expect(year).toHaveText('1978')
   await yearSlider.press('ArrowRight')
   await expect(year).toHaveText('1994')
-  await expect(page.locator('.timeline-jump-notice')).toContainText('Salto de 16 años')
+  await expect(page.locator('.timeline-jump-notice')).toContainText('1978 → 1994')
+  await expect(page.locator('.timeline-jump-notice')).toContainText('16 años hasta el siguiente registro')
   await page.getByRole('button', { name: 'Reproducir película' }).click()
   await expect(year).not.toHaveText('1994')
   await page.getByRole('button', { name: 'Pausar película' }).click()
@@ -178,25 +213,38 @@ test('desktop atlas renders every analytical surface and animation control', asy
   await expect(page.getByRole('heading', { name: 'Programas', exact: true })).toBeVisible()
   await expectCanvasHasContent(page.locator('.program-chart canvas').last())
   await expectPlotFitsViewport(page, '.program-chart')
+  await expectChartTooltipContained(page, '.program-chart')
+  await page.getByRole('button', { name: 'Similitud' }).click()
+  await expectCanvasHasContent(page.locator('.program-chart canvas').last())
+  await expectChartTooltipContained(page, '.program-chart')
+  await page.getByRole('button', { name: 'Perfil temático' }).click()
   await saveScreenshot(page, testInfo, 'atlas-desktop-programs.png')
 
   await page.getByRole('button', { name: 'Temas', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Territorios temáticos', exact: true })).toBeVisible()
   await expectCanvasHasContent(page.locator('.topic-chart canvas').last())
   await expectPlotFitsViewport(page, '.topic-chart')
+  await expectChartTooltipContained(page, '.topic-chart')
   await saveScreenshot(page, testInfo, 'atlas-desktop-topics.png')
 
   await page.getByRole('button', { name: 'Profesorado', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Profesorado', exact: true })).toBeVisible()
   await expectCanvasHasContent(page.locator('.faculty-chart canvas').last())
   await expectPlotFitsViewport(page, '.faculty-chart')
+  await expectChartTooltipContained(page, '.faculty-chart')
   await saveScreenshot(page, testInfo, 'atlas-desktop-faculty.png')
 
   await page.getByRole('button', { name: 'Método', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Cómo se construyó el atlas', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Una cadena reproducible, con la fuente siempre a la vista' })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Consultar el Repositorio Digital CIDE' })).toHaveAttribute('href', 'https://repositorio-digital.cide.edu')
+  await expect(page.getByRole('heading', { name: '2,388 tesis conectadas por lo que dicen' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Una forma distinta de leer la producción del CIDE' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Ver la fuente original' })).toHaveAttribute('href', 'https://repositorio-digital.cide.edu')
+  const technicalDetails = page.locator('.method-technical')
+  await expect(technicalDetails).not.toHaveAttribute('open', '')
   await saveScreenshot(page, testInfo, 'atlas-desktop-methodology.png')
+  await page.getByText('Ver ficha técnica y reproducibilidad').click()
+  await expect(technicalDetails).toHaveAttribute('open', '')
+  await expect(page.getByRole('heading', { name: 'El agrupamiento no depende del dibujo' })).toBeVisible()
 })
 
 test('mobile atlas reflows without document overflow or control collisions', async ({ page }, testInfo) => {
@@ -221,7 +269,10 @@ test('mobile atlas reflows without document overflow or control collisions', asy
   expect(timeStage).not.toBeNull()
   expect(dock!.y).toBeGreaterThanOrEqual(timeStage!.y)
   expect(dock!.y + dock!.height).toBeLessThanOrEqual(timeStage!.y + timeStage!.height + 1)
-  await expect(page.locator('.range-gap')).toContainText('salto 16 años')
+  await expect(page.locator('.range-gap')).toHaveCount(0)
+  await expect(page.locator('.range-labels')).toContainText('1978')
+  await expect(page.locator('.range-labels')).toContainText('2026')
+  await expect(page.locator('.range-labels')).not.toContainText('salto')
   await saveScreenshot(page, testInfo, 'atlas-mobile-time.png')
 
   await page.getByRole('button', { name: 'Programas', exact: true }).click()
@@ -229,20 +280,24 @@ test('mobile atlas reflows without document overflow or control collisions', asy
   await expectNoDocumentOverflow(page)
   await expectCanvasHasContent(page.locator('.program-chart canvas').last())
   await expectPlotFitsViewport(page, '.program-chart')
+  await expectChartTooltipContained(page, '.program-chart')
   await saveScreenshot(page, testInfo, 'atlas-mobile-programs.png')
 
   await page.getByRole('button', { name: 'Similitud' }).click()
   await expectCanvasHasContent(page.locator('.program-chart canvas').last())
   await expectPlotFitsViewport(page, '.program-chart')
+  await expectChartTooltipContained(page, '.program-chart')
 
   await page.getByRole('button', { name: 'Temas', exact: true }).click()
   await expectCanvasHasContent(page.locator('.topic-chart canvas').last())
   await expectPlotFitsViewport(page, '.topic-chart')
+  await expectChartTooltipContained(page, '.topic-chart')
   await saveScreenshot(page, testInfo, 'atlas-mobile-topics.png')
 
   await page.getByRole('button', { name: 'Profesorado', exact: true }).click()
   await expectCanvasHasContent(page.locator('.faculty-chart canvas').last())
   await expectPlotFitsViewport(page, '.faculty-chart')
+  await expectChartTooltipContained(page, '.faculty-chart')
   await saveScreenshot(page, testInfo, 'atlas-mobile-faculty.png')
 
   await page.getByRole('button', { name: 'Programas', exact: true }).click()
@@ -254,9 +309,12 @@ test('mobile atlas reflows without document overflow or control collisions', asy
 
   await page.getByRole('button', { name: 'Método', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Cómo se construyó el atlas', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Una cadena reproducible, con la fuente siempre a la vista' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '2,388 tesis conectadas por lo que dicen' })).toBeVisible()
   await expectNoDocumentOverflow(page)
   await saveScreenshot(page, testInfo, 'atlas-mobile-methodology.png')
+  await page.getByText('Ver ficha técnica y reproducibilidad').click()
+  await expect(page.locator('.method-technical')).toHaveAttribute('open', '')
+  await expectNoDocumentOverflow(page)
 })
 
 test('small portrait and landscape plots stay inside the visible frame', async ({ page }) => {
@@ -280,5 +338,12 @@ test('small portrait and landscape plots stay inside the visible frame', async (
       await expectCanvasHasContent(page.locator(`${selector} canvas`).last(), 6)
       await expectPlotFitsViewport(page, selector)
     }
+
+    await page.getByRole('button', { name: 'Método', exact: true }).click()
+    await expect(page.getByRole('heading', { name: '2,388 tesis conectadas por lo que dicen' })).toBeVisible()
+    await expectNoDocumentOverflow(page)
+    await page.getByText('Ver ficha técnica y reproducibilidad').click()
+    await expect(page.locator('.method-technical')).toHaveAttribute('open', '')
+    await expectNoDocumentOverflow(page)
   }
 })

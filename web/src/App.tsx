@@ -30,7 +30,7 @@ const VIEW_COPY: Record<ViewId, { title: string; subtitle: string }> = {
   },
   methodology: {
     title: 'Cómo se construyó el atlas',
-    subtitle: 'Fuente, procesamiento, modelos, validaciones y límites de interpretación.',
+    subtitle: 'Cómo pasamos de fichas del repositorio a conexiones, temas y una vista a través del tiempo.',
   },
 }
 

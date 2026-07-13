@@ -7,6 +7,7 @@ import {
   Pause,
   Play,
   Search,
+  SkipForward,
   X,
 } from 'lucide-react'
 import type {
@@ -145,7 +146,6 @@ export function AtlasMapView({
   const yearIndex = Math.max(0, timelineYears.indexOf(year))
   const previousTimelineYear = yearIndex > 0 ? timelineYears[yearIndex - 1] : year
   const currentYearGap = year - previousTimelineYear
-  const firstYearGap = timelineYears.length > 1 ? timelineYears[1] - timelineYears[0] : 0
 
   const activeFilterCount = [filters.level, filters.program, filters.clusterId].filter((value) => value !== '' && value !== null).length
 
@@ -326,8 +326,9 @@ export function AtlasMapView({
                     transition={{ duration: 0.24 }}
                     aria-live="polite"
                   >
-                    <span aria-hidden="true">//</span>
-                    Salto de {currentYearGap} años · no hay tesis registradas entre ambos cortes
+                    <SkipForward size={14} aria-hidden="true" />
+                    <strong>{previousTimelineYear} → {year}</strong>
+                    <span>{currentYearGap} años hasta el siguiente registro</span>
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -358,7 +359,6 @@ export function AtlasMapView({
                   />
                   <span className="range-labels">
                     <span>{timelineYears[0]}</span>
-                    {firstYearGap > 1 && <span className="range-gap"><b aria-hidden="true">//</b> salto {firstYearGap} años</span>}
                     <span>{timelineYears[timelineYears.length - 1]}</span>
                   </span>
                 </label>

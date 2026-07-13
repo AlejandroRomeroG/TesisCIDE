@@ -51,14 +51,72 @@ interface EChartProps {
   onClick?: (params: unknown) => void
 }
 
+interface TooltipPositionSize {
+  contentSize: [number, number]
+  viewSize: [number, number]
+}
+
+type TooltipRecord = Record<string, unknown>
+
+const TOOLTIP_EDGE_GAP = 8
+const TOOLTIP_POINTER_GAP = 12
+
+function containedTooltipPosition(
+  point: [number, number],
+  _params: unknown,
+  _element: unknown,
+  _rect: unknown,
+  size: TooltipPositionSize,
+): [number, number] {
+  const [viewWidth, viewHeight] = size.viewSize
+  const contentWidth = Math.min(size.contentSize[0], Math.max(0, viewWidth - TOOLTIP_EDGE_GAP * 2))
+  const contentHeight = Math.min(size.contentSize[1], Math.max(0, viewHeight - TOOLTIP_EDGE_GAP * 2))
+
+  let left = point[0] + TOOLTIP_POINTER_GAP
+  let top = point[1] + TOOLTIP_POINTER_GAP
+  if (left + contentWidth > viewWidth - TOOLTIP_EDGE_GAP) {
+    left = point[0] - contentWidth - TOOLTIP_POINTER_GAP
+  }
+  if (top + contentHeight > viewHeight - TOOLTIP_EDGE_GAP) {
+    top = point[1] - contentHeight - TOOLTIP_POINTER_GAP
+  }
+
+  const maxLeft = Math.max(TOOLTIP_EDGE_GAP, viewWidth - contentWidth - TOOLTIP_EDGE_GAP)
+  const maxTop = Math.max(TOOLTIP_EDGE_GAP, viewHeight - contentHeight - TOOLTIP_EDGE_GAP)
+  return [
+    Math.max(TOOLTIP_EDGE_GAP, Math.min(left, maxLeft)),
+    Math.max(TOOLTIP_EDGE_GAP, Math.min(top, maxTop)),
+  ]
+}
+
 function resolvedOption(element: HTMLDivElement, value: ResponsiveChartOption): EChartsCoreOption {
-  if (typeof value !== 'function') return value
   const bounds = element.getBoundingClientRect()
-  return value({
+  const size = {
     width: Math.max(1, Math.round(bounds.width)),
     height: Math.max(1, Math.round(bounds.height)),
     compact: bounds.width < 600,
-  })
+  }
+  const option = typeof value === 'function' ? value(size) : value
+  const tooltip = (option as TooltipRecord).tooltip
+  if (!tooltip || Array.isArray(tooltip) || typeof tooltip !== 'object') return option
+
+  const tooltipOption = tooltip as TooltipRecord
+  const existingClassName = typeof tooltipOption.className === 'string' ? tooltipOption.className : ''
+  const existingCss = typeof tooltipOption.extraCssText === 'string' ? tooltipOption.extraCssText : ''
+  const maxWidth = Math.max(1, Math.min(320, size.width - TOOLTIP_EDGE_GAP * 2))
+
+  return {
+    ...option,
+    tooltip: {
+      ...tooltipOption,
+      appendTo: element,
+      className: `${existingClassName} atlas-chart-tooltip`.trim(),
+      confine: true,
+      renderMode: 'html',
+      position: containedTooltipPosition,
+      extraCssText: `${existingCss};max-width:${maxWidth}px;box-sizing:border-box;white-space:normal;overflow-wrap:anywhere;word-break:break-word;line-height:1.45;pointer-events:none;`,
+    },
+  }
 }
 
 export function EChart({ option, className = '', ariaLabel, onClick }: EChartProps) {
