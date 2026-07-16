@@ -158,6 +158,11 @@ async function expectClusterVisibilityPreservesCamera(page: Page, token: string)
 async function expectFilterTogglePreservesMap(page: Page, token: string) {
   const canvas = activeSemanticCanvas(page)
   const camera = await readCameraState(page)
+  const closedScrollTop = await page.locator('.app-main').evaluate((element) => element.scrollTop)
+  const closedBounds = await activeSemanticMap(page).evaluate((element) => {
+    const bounds = element.getBoundingClientRect()
+    return { top: bounds.top, height: bounds.height }
+  })
   await canvas.evaluate((element, value) => {
     element.dataset.filterToken = value
   }, token)
@@ -176,14 +181,23 @@ async function expectFilterTogglePreservesMap(page: Page, token: string) {
   const heightRange = Math.max(...layoutSamples.map(({ height }) => height)) - Math.min(...layoutSamples.map(({ height }) => height))
   expect(topRange).toBeLessThanOrEqual(1)
   expect(heightRange).toBeLessThanOrEqual(1)
+  expect(layoutSamples[0].top).toBeGreaterThan(closedBounds.top)
+  expect(Math.abs(layoutSamples[0].height - closedBounds.height)).toBeLessThanOrEqual(1)
+  expect(await page.locator('.app-main').evaluate((element) => element.scrollTop)).toBe(closedScrollTop)
   await page.waitForTimeout(280)
   await expect(canvas).toHaveAttribute('data-filter-token', token)
   await expect.poll(() => readCameraState(page)).toEqual(camera)
-  await expectCanvasHasContent(canvas, 6)
 
   await page.getByRole('button', { name: 'Filtros', exact: true }).click()
   await expect(page.locator('.preserved-view.is-active .filter-band')).toHaveCount(0)
   await page.waitForTimeout(280)
+  const restoredBounds = await activeSemanticMap(page).evaluate((element) => {
+    const bounds = element.getBoundingClientRect()
+    return { top: bounds.top, height: bounds.height }
+  })
+  expect(Math.abs(restoredBounds.top - closedBounds.top)).toBeLessThanOrEqual(1)
+  expect(Math.abs(restoredBounds.height - closedBounds.height)).toBeLessThanOrEqual(1)
+  expect(await page.locator('.app-main').evaluate((element) => element.scrollTop)).toBe(closedScrollTop)
   await expect(canvas).toHaveAttribute('data-filter-token', token)
   await expect.poll(() => readCameraState(page)).toEqual(camera)
   await expectCanvasHasContent(canvas, 6)
@@ -419,6 +433,8 @@ test('mobile atlas reflows without document overflow or control collisions', asy
   await expect(page.getByRole('heading', { name: 'Mapa semántico', exact: true })).toBeVisible()
   await expectCanvasHasContent(activeSemanticCanvas(page))
   await expectNoDocumentOverflow(page)
+  await expectFilterTogglePreservesMap(page, 'mobile-map-filter')
+  await expectNoDocumentOverflow(page)
 
   const navigation = await page.locator('.side-navigation').boundingBox()
   const stage = await activeMapStage(page).boundingBox()
@@ -487,6 +503,7 @@ test('small portrait and landscape plots stay inside the visible frame', async (
     await page.setViewportSize(viewport)
     await page.goto('/')
     await expectCanvasHasContent(activeSemanticCanvas(page))
+    await expectFilterTogglePreservesMap(page, `compact-${viewport.width}x${viewport.height}-filter`)
 
     const navigation = await page.locator('.side-navigation').boundingBox()
     const stage = await activeMapStage(page).boundingBox()

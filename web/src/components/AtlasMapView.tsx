@@ -252,43 +252,44 @@ export function AtlasMapView({
         </button>
       </div>
 
-      <AnimatePresence initial={false}>
-        {filtersOpen && (
-          <motion.div
-            className="filter-band"
-            initial={{ opacity: 0, y: -5 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -5 }}
-            transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
-          >
-            <label>
-              <span>Nivel</span>
-              <select value={filters.level} onChange={(event) => updateFilter('level', event.target.value)}>
-                <option value="">Todos los niveles</option>
-                {levels.map((level) => <option key={level}>{level}</option>)}
-              </select>
-            </label>
-            <label>
-              <span>Programa</span>
-              <select value={filters.program} onChange={(event) => updateFilter('program', event.target.value)}>
-                <option value="">Todos los programas</option>
-                {programs.map((program) => <option key={program}>{program}</option>)}
-              </select>
-            </label>
-            <button
-              className="clear-filters"
-              type="button"
-              disabled={activeFilterCount === 0}
-              onClick={() => onFiltersChange({ ...EMPTY_FILTERS, query: filters.query })}
+      <div className={`map-body${filtersOpen ? ' filters-open' : ''}`}>
+        <AnimatePresence initial={false}>
+          {filtersOpen && (
+            <motion.div
+              className="filter-band"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.12, ease: 'easeOut' }}
             >
-              <X size={16} aria-hidden="true" />
-              Restablecer
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              <label>
+                <span>Nivel</span>
+                <select value={filters.level} onChange={(event) => updateFilter('level', event.target.value)}>
+                  <option value="">Todos los niveles</option>
+                  {levels.map((level) => <option key={level}>{level}</option>)}
+                </select>
+              </label>
+              <label>
+                <span>Programa</span>
+                <select value={filters.program} onChange={(event) => updateFilter('program', event.target.value)}>
+                  <option value="">Todos los programas</option>
+                  {programs.map((program) => <option key={program}>{program}</option>)}
+                </select>
+              </label>
+              <button
+                className="clear-filters"
+                type="button"
+                disabled={activeFilterCount === 0}
+                onClick={() => onFiltersChange({ ...EMPTY_FILTERS, query: filters.query })}
+              >
+                <X size={16} aria-hidden="true" />
+                Restablecer
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-      <div className="map-workspace">
+        <div className="map-workspace">
         <div className="map-stage">
           <Suspense fallback={<div className="map-loading">Preparando mapa WebGL…</div>}>
             <SemanticMap
@@ -495,6 +496,7 @@ export function AtlasMapView({
             )}
           </AnimatePresence>
         </aside>
+        </div>
       </div>
     </section>
   )
