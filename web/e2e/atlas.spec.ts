@@ -111,6 +111,50 @@ function activeMapStage(page: Page) {
   return page.locator('.preserved-view.is-active .map-stage')
 }
 
+interface CameraState {
+  zoom: string | undefined
+  targetX: string | undefined
+  targetY: string | undefined
+  targetZ: string | undefined
+  rotationOrbit: string | undefined
+  rotationX: string | undefined
+}
+
+async function readCameraState(page: Page): Promise<CameraState> {
+  return activeSemanticMap(page).evaluate((element) => ({
+    zoom: (element as HTMLElement).dataset.cameraZoom,
+    targetX: (element as HTMLElement).dataset.cameraTargetX,
+    targetY: (element as HTMLElement).dataset.cameraTargetY,
+    targetZ: (element as HTMLElement).dataset.cameraTargetZ,
+    rotationOrbit: (element as HTMLElement).dataset.cameraRotationOrbit,
+    rotationX: (element as HTMLElement).dataset.cameraRotationX,
+  }))
+}
+
+async function expectClusterVisibilityPreservesCamera(page: Page, token: string) {
+  const canvas = activeSemanticCanvas(page)
+  const initialCamera = await readCameraState(page)
+  await canvas.hover()
+  await page.mouse.wheel(0, -260)
+  await expect.poll(async () => (await readCameraState(page)).zoom).not.toBe(initialCamera.zoom)
+  await canvas.evaluate((element, value) => {
+    element.dataset.cameraToken = value
+  }, token)
+  const movedCamera = await readCameraState(page)
+
+  await page.getByRole('button', { name: /Crimen, violencia y seguridad/ }).click()
+  await expect(activeSemanticMap(page)).toHaveAttribute('data-point-count', '154')
+  await expect(canvas).toHaveAttribute('data-camera-token', token)
+  await expect.poll(() => readCameraState(page)).toEqual(movedCamera)
+
+  const canvasBox = await canvas.boundingBox()
+  expect(canvasBox).not.toBeNull()
+  await page.mouse.click(canvasBox!.x + canvasBox!.width / 2, canvasBox!.y + 24)
+  await expect(activeSemanticMap(page)).toHaveAttribute('data-point-count', '2388')
+  await expect(canvas).toHaveAttribute('data-camera-token', token)
+  await expect.poll(() => readCameraState(page)).toEqual(movedCamera)
+}
+
 test('desktop atlas renders every analytical surface and animation control', async ({ page }, testInfo) => {
   test.slow()
   await page.setViewportSize({ width: 1440, height: 1000 })
@@ -171,21 +215,14 @@ test('desktop atlas renders every analytical surface and animation control', asy
   await page.reload()
   await expectCanvasHasContent(activeSemanticCanvas(page))
 
-  await page.getByRole('button', { name: /Crimen, violencia y seguridad/ }).click()
-  await expect(activeMapReadout(page).locator('strong')).toHaveText('154')
+  await expectClusterVisibilityPreservesCamera(page, 'map-2d-camera')
   await expectCanvasHasContent(activeSemanticCanvas(page))
-  const canvasBox = await activeSemanticCanvas(page).boundingBox()
-  expect(canvasBox).not.toBeNull()
-  await page.mouse.click(canvasBox!.x + canvasBox!.width / 2, canvasBox!.y + 24)
-  await expect(activeMapReadout(page).locator('strong')).toHaveText('2,388')
   await expect(page.getByRole('heading', { name: 'Explora por tema' })).toBeVisible()
 
   await page.getByRole('button', { name: '3D', exact: true }).click()
   await expectCanvasHasContent(activeSemanticCanvas(page))
   await saveScreenshot(page, testInfo, 'atlas-desktop-3d.png')
-  await activeSemanticCanvas(page).hover()
-  await page.mouse.wheel(0, -650)
-  await page.waitForTimeout(450)
+  await expectClusterVisibilityPreservesCamera(page, 'map-3d-camera')
   await saveScreenshot(page, testInfo, 'atlas-desktop-3d-close.png')
 
   await page.getByRole('button', { name: 'Programas', exact: true }).click()
@@ -196,6 +233,9 @@ test('desktop atlas renders every analytical surface and animation control', asy
 
   await page.getByRole('button', { name: 'Tiempo', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'El mapa a través del tiempo' })).toBeVisible()
+  await expectClusterVisibilityPreservesCamera(page, 'time-3d-camera')
+  await page.getByRole('button', { name: '2D', exact: true }).click()
+  await expectClusterVisibilityPreservesCamera(page, 'time-2d-camera')
   const year = page.locator('.timeline-year strong')
   await expect(year).toHaveText('2026')
   const yearSlider = page.getByRole('slider', { name: 'Año de corte' })

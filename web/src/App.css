@@ -25,21 +25,37 @@
   padding: 18px 15px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
   border-bottom: 1px solid rgba(255, 255, 255, 0.16);
 }
 
 .brand-mark {
   width: 34px;
   height: 34px;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   color: var(--signal-ink);
   background: var(--signal);
   border-radius: 4px;
   font-family: 'Space Grotesk Variable', sans-serif;
-  font-size: 0.82rem;
-  font-weight: 720;
+  line-height: 1;
+}
+
+.brand-mark strong {
+  font-size: 0.76rem;
+  font-weight: 740;
+}
+
+.brand-mark small {
+  margin-top: 2px;
+  font-size: 0.3rem;
+  font-weight: 760;
+  letter-spacing: 0;
 }
 
 .brand-name {

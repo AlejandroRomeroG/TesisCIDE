@@ -286,7 +286,7 @@ export function AtlasMapView({
           <Suspense fallback={<div className="map-loading">Preparando mapa WebGL…</div>}>
             <SemanticMap
               points={displayedPoints}
-              fitPoints={filteredPoints}
+              fitPoints={structuralPoints}
               highlightedIds={displayedMatchIds}
               clusters={analytics.clusters}
               mode={mode}

@@ -26,7 +26,10 @@ export function Navigation({ activeView, onChange }: NavigationProps) {
   return (
     <aside className="side-navigation">
       <div className="brand-lockup">
-        <span className="brand-mark">AT</span>
+        <span className="brand-mark" aria-hidden="true">
+          <strong>AT</strong>
+          <small>CIDE</small>
+        </span>
         <span className="brand-name">Atlas de<br />Tesis CIDE</span>
       </div>
       <nav aria-label="Vistas del atlas">

@@ -67,6 +67,13 @@ interface FitPadding {
   left: number
 }
 
+interface CameraViewState {
+  target?: [number, number] | [number, number, number]
+  zoom?: number
+  rotationOrbit?: number
+  rotationX?: number
+}
+
 function isClusterSummary(object: MapObject): object is ClusterSummary {
   return 'centroid' in object && 'count' in object
 }
@@ -246,9 +253,10 @@ export function SemanticMap({
   }, [])
 
   const fitBounds = useMemo(() => boundsForPoints(fitPoints), [fitPoints])
+  const timelineVisible = yearCutoff !== null
   const fitState = useMemo(
-    () => fitView(fitBounds, mapSize, mode, yearCutoff !== null),
-    [fitBounds, mapSize, mode, yearCutoff],
+    () => fitView(fitBounds, mapSize, mode, timelineVisible),
+    [fitBounds, mapSize, mode, timelineVisible],
   )
   const fitKey = [
     mapSize.width,
@@ -456,19 +464,25 @@ export function SemanticMap({
     return [gridLayer, pointLayer, centroidLayer, labelLayer]
   }, [highlightedClusterIds, highlightedIds, mode, points, selectedClusterId, selectedId, visibleClusters, yearCutoff])
 
-  const view = mode === '2d'
-    ? new OrthographicView({ id: 'semantic-2d', controller: true, flipY: false })
-    : new OrbitView({ id: 'semantic-3d', controller: true, orbitAxis: 'Z' })
+  const view = useMemo(
+    () => mode === '2d'
+      ? new OrthographicView({ id: 'semantic-2d', controller: true, flipY: false })
+      : new OrbitView({ id: 'semantic-3d', controller: true, orbitAxis: 'Z' }),
+    [mode],
+  )
 
-  const initialViewState = mode === '2d'
-    ? fitState
-    : {
-        ...fitState,
-        rotationOrbit: ROTATION_ORBIT,
-        rotationX: ROTATION_X,
-        minRotationX: -70,
-        maxRotationX: 70,
-      }
+  const initialViewState = useMemo(
+    () => mode === '2d'
+      ? fitState
+      : {
+          ...fitState,
+          rotationOrbit: ROTATION_ORBIT,
+          rotationX: ROTATION_X,
+          minRotationX: -70,
+          maxRotationX: 70,
+        },
+    [fitState, mode],
+  )
 
   function handleClick(info: PickingInfo<MapObject>) {
     if (!info.object) {
@@ -507,6 +521,21 @@ export function SemanticMap({
     })
   }
 
+  function recordCameraState(viewState: CameraViewState) {
+    const element = mapRef.current
+    if (!element || !viewState.target || typeof viewState.zoom !== 'number') return
+    element.dataset.cameraZoom = viewState.zoom.toFixed(4)
+    element.dataset.cameraTargetX = viewState.target[0].toFixed(4)
+    element.dataset.cameraTargetY = viewState.target[1].toFixed(4)
+    element.dataset.cameraTargetZ = (viewState.target[2] ?? 0).toFixed(4)
+    if (typeof viewState.rotationOrbit === 'number') {
+      element.dataset.cameraRotationOrbit = viewState.rotationOrbit.toFixed(4)
+    }
+    if (typeof viewState.rotationX === 'number') {
+      element.dataset.cameraRotationX = viewState.rotationX.toFixed(4)
+    }
+  }
+
   return (
     <div
       ref={mapRef}
@@ -516,6 +545,12 @@ export function SemanticMap({
       data-fit-zoom={fitState.zoom.toFixed(4)}
       data-fit-target-x={fitState.target[0].toFixed(4)}
       data-fit-target-y={fitState.target[1].toFixed(4)}
+      data-camera-zoom={fitState.zoom.toFixed(4)}
+      data-camera-target-x={fitState.target[0].toFixed(4)}
+      data-camera-target-y={fitState.target[1].toFixed(4)}
+      data-camera-target-z={fitState.target[2].toFixed(4)}
+      data-camera-rotation-orbit={mode === '3d' ? ROTATION_ORBIT.toFixed(4) : undefined}
+      data-camera-rotation-x={mode === '3d' ? ROTATION_X.toFixed(4) : undefined}
       data-point-count={points.length}
       data-highlight-count={highlightedIds?.size ?? points.length}
       onPointerDownCapture={handlePointerDown}
@@ -528,6 +563,7 @@ export function SemanticMap({
         initialViewState={initialViewState}
         layers={layers}
         onClick={handleClick}
+        onViewStateChange={({ viewState }) => recordCameraState(viewState as CameraViewState)}
         getTooltip={({ object, x, y }: PickingInfo<MapObject>) => {
           if (!object) return null
           if (isClusterSummary(object)) {
