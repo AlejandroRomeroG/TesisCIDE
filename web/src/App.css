@@ -845,7 +845,7 @@
 .subjects-line > span,
 .context-section > span,
 .advisor-topic-bars > span,
-.similar-list > span {
+.program-comparison-bars > span {
   display: block;
   margin-bottom: 7px;
   color: var(--muted);
@@ -1135,41 +1135,63 @@
   line-height: 1.35;
 }
 
-.similar-list {
-  padding: 18px 0;
+.program-comparison-bars {
+  padding: 18px 0 0;
 }
 
-.similar-list button {
+.program-comparison-bars button {
   width: 100%;
-  padding: 9px 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  padding: 9px 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 10px;
   text-align: left;
   background: transparent;
   border: 0;
   border-bottom: 1px solid var(--line);
+  border-radius: 3px;
+  transition: background-color 140ms ease, box-shadow 140ms ease;
 }
 
-.similar-list button > span {
+.program-comparison-bars button:hover {
+  background: #eef1ec;
+}
+
+.program-comparison-bars button.is-selected {
+  background: #eef1ec;
+  box-shadow: inset 3px 0 var(--signal);
+}
+
+.comparison-copy {
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.similar-list strong {
-  overflow: hidden;
+.comparison-copy strong {
   color: var(--ink-soft);
-  font-size: 0.65rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 0.6rem;
+  line-height: 1.3;
 }
 
-.similar-list small {
+.comparison-copy small,
+.comparison-value {
   color: var(--muted);
   font-size: 0.55rem;
+}
+
+.comparison-value {
+  align-self: start;
+  color: var(--ink-soft);
+  font-weight: 720;
+  font-variant-numeric: tabular-nums;
+}
+
+.program-comparison-bars .bar-track {
+  grid-column: 1 / -1;
+  height: 5px;
+  margin-top: 0;
 }
 
 .program-picker {

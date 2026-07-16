@@ -30,7 +30,7 @@ export function Navigation({ activeView, onChange }: NavigationProps) {
           <strong>AT</strong>
           <small>CIDE</small>
         </span>
-        <span className="brand-name">Atlas de<br />Tesis CIDE</span>
+        <span className="brand-name">Atlas de<br />Tesis del CIDE</span>
       </div>
       <nav aria-label="Vistas del atlas">
         {ITEMS.map(({ id, label, icon: Icon }) => (

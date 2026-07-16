@@ -155,6 +155,46 @@ async function expectClusterVisibilityPreservesCamera(page: Page, token: string)
   await expect.poll(() => readCameraState(page)).toEqual(movedCamera)
 }
 
+async function expectFilterTogglePreservesMap(page: Page, token: string) {
+  const canvas = activeSemanticCanvas(page)
+  await canvas.evaluate((element, value) => {
+    element.dataset.filterToken = value
+  }, token)
+
+  await page.getByRole('button', { name: 'Filtros', exact: true }).click()
+  await expect(page.locator('.preserved-view.is-active .filter-band')).toBeVisible()
+  await page.waitForTimeout(280)
+  await expect(canvas).toHaveAttribute('data-filter-token', token)
+  await expectCanvasHasContent(canvas, 6)
+
+  await page.getByRole('button', { name: 'Filtros', exact: true }).click()
+  await expect(page.locator('.preserved-view.is-active .filter-band')).toHaveCount(0)
+  await page.waitForTimeout(280)
+  await expect(canvas).toHaveAttribute('data-filter-token', token)
+  await expectCanvasHasContent(canvas, 6)
+}
+
+async function clickProgramHeatmapCell(page: Page, mode: 'profile' | 'similarity', column: number, row: number) {
+  const chart = page.locator('.program-chart')
+  const box = await chart.boundingBox()
+  expect(box).not.toBeNull()
+  const compact = box!.width < 600
+  const medium = box!.width < 820
+  const left = compact ? 76 : medium ? 154 : 245
+  const right = compact ? 8 : 30
+  const top = mode === 'profile' ? (compact ? 14 : 24) : (compact ? 40 : 48)
+  const bottom = mode === 'profile' ? (compact ? 64 : 74) : (compact ? 94 : 155)
+  const columns = mode === 'profile' ? 20 : 21
+  const rows = 21
+  const cellWidth = (box!.width - left - right) / columns
+  const cellHeight = (box!.height - top - bottom) / rows
+
+  await page.mouse.click(
+    box!.x + left + (column + 0.5) * cellWidth,
+    box!.y + top + (rows - row - 0.5) * cellHeight,
+  )
+}
+
 test('desktop atlas renders every analytical surface and animation control', async ({ page }, testInfo) => {
   test.slow()
   await page.setViewportSize({ width: 1440, height: 1000 })
@@ -184,6 +224,7 @@ test('desktop atlas renders every analytical surface and animation control', asy
   expect(sealStyles.authorLabel).toBe(sealStyles.sourceLabel)
   expect(sealStyles.authorValue).toBe(sealStyles.sourceValue)
   expect(sealStyles.authorMarker).toBe(sealStyles.sourceMarker)
+  await expect(page.locator('.brand-name')).toHaveText(/Atlas de\s*Tesis del CIDE/)
   await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', './favicon.svg?v=at-cide')
   const favicon = await page.evaluate(async () => {
     const response = await fetch(new URL('./favicon.svg', window.location.href))
@@ -197,6 +238,7 @@ test('desktop atlas renders every analytical surface and animation control', asy
   await expectCanvasHasContent(activeSemanticCanvas(page))
   await expectNoDocumentOverflow(page)
   await saveScreenshot(page, testInfo, 'atlas-desktop-map.png')
+  await expectFilterTogglePreservesMap(page, 'map-2d-filter')
 
   const search = page.getByRole('searchbox', { name: 'Buscar tesis, autor, asesor o tema' })
   await search.fill('pandemia')
@@ -257,8 +299,10 @@ test('desktop atlas renders every analytical surface and animation control', asy
   await expect(page.getByRole('heading', { name: 'Explora por tema' })).toBeVisible()
 
   await page.getByRole('button', { name: '3D', exact: true }).click()
+  await expect(activeSemanticMap(page)).toHaveAttribute('data-thesis-sphere-scale', '0.048')
   await expectCanvasHasContent(activeSemanticCanvas(page))
   await saveScreenshot(page, testInfo, 'atlas-desktop-3d.png')
+  await expectFilterTogglePreservesMap(page, 'map-3d-filter')
   await expectClusterVisibilityPreservesCamera(page, 'map-3d-camera')
   await saveScreenshot(page, testInfo, 'atlas-desktop-3d-close.png')
 
@@ -270,8 +314,10 @@ test('desktop atlas renders every analytical surface and animation control', asy
 
   await page.getByRole('button', { name: 'Tiempo', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'El mapa a través del tiempo' })).toBeVisible()
+  await expectFilterTogglePreservesMap(page, 'time-3d-filter')
   await expectClusterVisibilityPreservesCamera(page, 'time-3d-camera')
   await page.getByRole('button', { name: '2D', exact: true }).click()
+  await expectFilterTogglePreservesMap(page, 'time-2d-filter')
   await expectClusterVisibilityPreservesCamera(page, 'time-2d-camera')
   const year = page.locator('.timeline-year strong')
   await expect(year).toHaveText('2026')
@@ -291,9 +337,28 @@ test('desktop atlas renders every analytical surface and animation control', asy
   await expectCanvasHasContent(page.locator('.program-chart canvas').last())
   await expectPlotFitsViewport(page, '.program-chart')
   await expectChartTooltipContained(page, '.program-chart')
+  await clickProgramHeatmapCell(page, 'profile', 1, 0)
+  await expect(page.locator('.analysis-context')).toHaveAttribute('data-selected-program', 'Licenciatura en Economía')
+  await expect(page.locator('.analysis-context')).toHaveAttribute('data-selected-cluster', '1')
+  await expect(page.locator('.program-comparison-bars')).toHaveAttribute('data-comparison-count', '20')
+  await expect(page.locator('.program-comparison-bars button')).toHaveCount(20)
+  await expect(page.locator('.program-comparison-bars button').first()).toHaveAttribute('aria-pressed', 'true')
   await page.getByRole('button', { name: 'Similitud' }).click()
   await expectCanvasHasContent(page.locator('.program-chart canvas').last())
   await expectChartTooltipContained(page, '.program-chart')
+  await clickProgramHeatmapCell(page, 'similarity', 1, 10)
+  await expect(page.locator('.analysis-context')).toHaveAttribute(
+    'data-selected-program',
+    'Maestría en Métodos para el Análisis de Políticas Públicas',
+  )
+  await expect(page.locator('.analysis-context')).toHaveAttribute(
+    'data-selected-comparison',
+    'Licenciatura en Ciencia Política y Relaciones Internacionales',
+  )
+  await expect(page.locator('.program-comparison-bars')).toHaveAttribute('data-comparison-count', '20')
+  await expect(page.locator('.program-comparison-bars button')).toHaveCount(20)
+  await expect(page.locator('.program-comparison-bars button').first()).toHaveAttribute('aria-pressed', 'true')
+  await saveScreenshot(page, testInfo, 'atlas-desktop-program-similarity.png')
   await page.getByRole('button', { name: 'Perfil temático' }).click()
   await saveScreenshot(page, testInfo, 'atlas-desktop-programs.png')
 

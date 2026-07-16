@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'motion/react'
-import { ArrowRight, Grid3X3, Share2 } from 'lucide-react'
+import { Grid3X3, Share2 } from 'lucide-react'
 import { EChart, type ResponsiveChartOption } from './EChart'
 import type { AnalyticsPayload, ProgramSummary } from '../types'
 import { clusterColor } from '../lib/colors'
@@ -10,9 +10,8 @@ interface ProgramsViewProps {
   analytics: AnalyticsPayload
 }
 
-interface HeatmapClick {
-  value?: [number, number, number, number, string, string]
-}
+type ProfileHeatmapValue = [number, number, number, number, string, string, number]
+type SimilarityHeatmapValue = [number, number, number, string, string]
 
 type ProgramMode = 'profile' | 'similarity'
 
@@ -21,11 +20,21 @@ function programAxisLabel(program: ProgramSummary): string {
   return `${prefix} · ${shortProgram(program.degreeProgram)}`
 }
 
+function similarityColor(value: number): string {
+  if (value >= 0.9) return '#0d675a'
+  if (value >= 0.75) return '#4a8c7d'
+  if (value >= 0.6) return '#8bb4a8'
+  if (value >= 0.4) return '#c9d8d2'
+  return '#d8ddd8'
+}
+
 export function ProgramsView({ analytics }: ProgramsViewProps) {
   const [mode, setMode] = useState<ProgramMode>('profile')
   const [selectedName, setSelectedName] = useState(
     [...analytics.programs].sort((a, b) => b.thesisCount - a.thesisCount)[0]?.degreeProgram ?? '',
   )
+  const [selectedClusterId, setSelectedClusterId] = useState<number | null>(null)
+  const [selectedComparisonName, setSelectedComparisonName] = useState<string | null>(null)
 
   const orderedPrograms = useMemo(
     () => [...analytics.programs].sort((a, b) => {
@@ -49,7 +58,11 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
     const gridLeft = compact ? 76 : medium ? 154 : 245
     const values = orderedPrograms.flatMap((program, y) => clusters.map((cluster, x) => {
       const datum = matrix.get(`${program.degreeProgram}|${cluster.id}`)
-      return [x, y, datum?.programShare ?? 0, datum?.count ?? 0, program.degreeProgram, cluster.theme]
+      const active = selectedName === program.degreeProgram && selectedClusterId === cluster.id
+      return {
+        value: [x, y, datum?.programShare ?? 0, datum?.count ?? 0, program.degreeProgram, cluster.theme, cluster.id],
+        itemStyle: active ? { borderColor: '#111815', borderWidth: 3 } : undefined,
+      }
     }))
     return {
       animationDuration: 420,
@@ -67,7 +80,7 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
         borderWidth: 0,
         textStyle: { color: '#f8faf5', fontFamily: 'Manrope Variable' },
         formatter: (params: unknown) => {
-          const value = (params as HeatmapClick).value
+          const value = (params as { value?: ProfileHeatmapValue }).value
           if (!value) return ''
           return `<strong>${value[4]}</strong><br/>${value[5]}<br/><b>${formatPercent(value[2])}</b> · ${formatNumber(value[3])} tesis`
         },
@@ -119,7 +132,7 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
         emphasis: { itemStyle: { borderColor: '#111815', borderWidth: 2 } },
       }],
     }
-  }, [analytics.programMatrix, clusters, orderedPrograms, programLabels])
+  }, [analytics.programMatrix, clusters, orderedPrograms, programLabels, selectedClusterId, selectedName])
 
   const similarityOption = useMemo<ResponsiveChartOption>(() => ({ width, compact }) => {
     const matrix = new Map(
@@ -129,7 +142,11 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
     const gridLeft = compact ? 76 : medium ? 154 : 245
     const values = programNames.flatMap((programA, y) => programNames.map((programB, x) => {
       const datum = matrix.get(`${programA}|${programB}`)
-      return [x, y, datum?.similarity ?? 0, programA, programB]
+      const active = selectedName === programA && selectedComparisonName === programB
+      return {
+        value: [x, y, datum?.similarity ?? 0, programA, programB],
+        itemStyle: active ? { borderColor: '#111815', borderWidth: 3 } : undefined,
+      }
     }))
     return {
       animationDuration: 420,
@@ -137,7 +154,7 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
       grid: {
         left: gridLeft,
         right: compact ? 8 : 30,
-        top: compact ? 14 : 24,
+        top: compact ? 40 : 48,
         bottom: compact ? 94 : 155,
       },
       tooltip: {
@@ -145,7 +162,7 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
         borderWidth: 0,
         textStyle: { color: '#f8faf5', fontFamily: 'Manrope Variable' },
         formatter: (params: unknown) => {
-          const value = (params as { value?: [number, number, number, string, string] }).value
+          const value = (params as { value?: SimilarityHeatmapValue }).value
           if (!value) return ''
           return `<strong>${value[3]}</strong><br/>${value[4]}<br/>Similitud coseno <b>${formatCoefficient(value[2])}</b>`
         },
@@ -180,8 +197,8 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
       visualMap: {
         type: 'piecewise',
         orient: 'horizontal',
-        left: gridLeft,
-        bottom: compact ? 2 : 10,
+        left: compact ? 'center' : gridLeft,
+        top: compact ? 1 : 7,
         dimension: 2,
         itemWidth: compact ? 10 : 14,
         itemHeight: compact ? 8 : 10,
@@ -203,20 +220,67 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
         emphasis: { itemStyle: { borderColor: '#111815', borderWidth: 2 } },
       }],
     }
-  }, [analytics.programSimilarity, programLabels, programNames])
+  }, [analytics.programSimilarity, programLabels, programNames, selectedComparisonName, selectedName])
+
+  const profileRows = useMemo(() => {
+    const matrix = new Map(
+      analytics.programMatrix
+        .filter((datum) => datum.degreeProgram === selected.degreeProgram)
+        .map((datum) => [datum.clusterId, datum]),
+    )
+    return clusters
+      .map((cluster) => {
+        const datum = matrix.get(cluster.id)
+        return {
+          clusterId: cluster.id,
+          clusterTheme: cluster.theme,
+          count: datum?.count ?? 0,
+          share: datum?.programShare ?? 0,
+        }
+      })
+      .sort((a, b) => {
+        const selectedDelta = Number(b.clusterId === selectedClusterId) - Number(a.clusterId === selectedClusterId)
+        return selectedDelta || b.share - a.share || a.clusterId - b.clusterId
+      })
+  }, [analytics.programMatrix, clusters, selected.degreeProgram, selectedClusterId])
 
   const similarPrograms = useMemo(
     () => analytics.programSimilarity
       .filter((datum) => datum.programA === selected.degreeProgram && datum.programB !== selected.degreeProgram)
-      .sort((a, b) => b.similarity - a.similarity)
-      .slice(0, 5),
-    [analytics.programSimilarity, selected.degreeProgram],
+      .sort((a, b) => {
+        const selectedDelta = Number(b.programB === selectedComparisonName) - Number(a.programB === selectedComparisonName)
+        return selectedDelta || b.similarity - a.similarity || a.programB.localeCompare(b.programB, 'es')
+      }),
+    [analytics.programSimilarity, selected.degreeProgram, selectedComparisonName],
   )
 
+  function changeMode(nextMode: ProgramMode) {
+    setMode(nextMode)
+    setSelectedClusterId(null)
+    setSelectedComparisonName(null)
+  }
+
+  function selectProgram(program: string, comparison: string | null = null) {
+    setSelectedName(program)
+    setSelectedClusterId(null)
+    setSelectedComparisonName(comparison)
+  }
+
   function handleChartClick(params: unknown) {
-    const value = (params as HeatmapClick).value
-    const program = mode === 'profile' ? value?.[4] : value?.[4]
-    if (typeof program === 'string') setSelectedName(program)
+    if (mode === 'profile') {
+      const value = (params as { value?: ProfileHeatmapValue }).value
+      if (!value) return
+      setSelectedName(value[4])
+      setSelectedClusterId(value[6])
+      setSelectedComparisonName(null)
+      return
+    }
+
+    const value = (params as { value?: SimilarityHeatmapValue }).value
+    if (!value) return
+    setSelectedName(value[3])
+    setSelectedClusterId(null)
+    setSelectedComparisonName(value[3] === value[4] ? null : value[4])
   }
 
   return (
@@ -227,10 +291,10 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
           <h2>Perfiles que se pueden comparar</h2>
         </div>
         <div className="segmented-control labeled" aria-label="Modo de comparación de programas">
-          <button type="button" aria-pressed={mode === 'profile'} onClick={() => setMode('profile')}>
+          <button type="button" aria-pressed={mode === 'profile'} onClick={() => changeMode('profile')}>
             <Grid3X3 size={16} aria-hidden="true" /> Perfil temático
           </button>
-          <button type="button" aria-pressed={mode === 'similarity'} onClick={() => setMode('similarity')}>
+          <button type="button" aria-pressed={mode === 'similarity'} onClick={() => changeMode('similarity')}>
             <Share2 size={16} aria-hidden="true" /> Similitud
           </button>
         </div>
@@ -243,7 +307,7 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
               <h3>{mode === 'profile' ? 'Mezcla temática por programa' : 'Afinidad entre programas'}</h3>
               <p>{mode === 'profile' ? 'Cada fila suma 100% de la producción del programa.' : 'Coseno entre distribuciones temáticas; 1 indica perfiles idénticos.'}</p>
             </div>
-            <span>Fuente: Parquet canónico</span>
+            <span>Fuente: Repositorio Digital CIDE</span>
           </div>
           <div className="chart-scroll">
             <EChart
@@ -257,7 +321,11 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
 
         <motion.aside
           className="analysis-context"
-          key={selected.degreeProgram}
+          key={`${mode}-${selected.degreeProgram}`}
+          data-program-mode={mode}
+          data-selected-program={selected.degreeProgram}
+          data-selected-cluster={selectedClusterId ?? ''}
+          data-selected-comparison={selectedComparisonName ?? ''}
           initial={{ opacity: 0, x: 16 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.22 }}
@@ -273,28 +341,53 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
             <span>Tema principal · {formatPercent(selected.mainClusterShare)}</span>
             <p>{selected.mainCluster}</p>
           </div>
+          <label className="program-picker">
+            <span>Cambiar programa</span>
+            <select value={selectedName} onChange={(event) => selectProgram(event.target.value)}>
+              {orderedPrograms.map((program) => <option key={program.degreeProgram}>{program.degreeProgram}</option>)}
+            </select>
+          </label>
           {mode === 'profile' ? (
-            <div className="context-section">
-              <span>Mezcla principal</span>
-              {selected.topThemes.map((theme) => <p key={theme}>{theme}</p>)}
+            <div className="program-comparison-bars" data-comparison-count={profileRows.length}>
+              <span>Distribución entre los 20 temas</span>
+              {profileRows.map((row) => (
+                <button
+                  className={row.clusterId === selectedClusterId ? 'is-selected' : ''}
+                  key={row.clusterId}
+                  type="button"
+                  aria-pressed={row.clusterId === selectedClusterId}
+                  onClick={() => setSelectedClusterId(row.clusterId)}
+                >
+                  <span className="comparison-copy">
+                    <strong>{String(row.clusterId).padStart(2, '0')} · {row.clusterTheme}</strong>
+                    <small>{formatNumber(row.count)} tesis</small>
+                  </span>
+                  <span className="comparison-value">{formatPercent(row.share)}</span>
+                  <span className="bar-track"><span style={{ width: `${row.share * 100}%`, backgroundColor: clusterColor(row.clusterId) }} /></span>
+                </button>
+              ))}
             </div>
           ) : (
-            <div className="similar-list">
-              <span>Programas más cercanos</span>
+            <div className="program-comparison-bars" data-comparison-count={similarPrograms.length}>
+              <span>Afinidad con los otros 20 programas</span>
               {similarPrograms.map((program) => (
-                <button key={program.programB} type="button" onClick={() => setSelectedName(program.programB)}>
-                  <span><strong>{shortProgram(program.programB)}</strong><small>{formatCoefficient(program.similarity)} coseno</small></span>
-                  <ArrowRight size={16} aria-hidden="true" />
+                <button
+                  className={program.programB === selectedComparisonName ? 'is-selected' : ''}
+                  key={program.programB}
+                  type="button"
+                  aria-pressed={program.programB === selectedComparisonName}
+                  onClick={() => selectProgram(program.programB, selected.degreeProgram)}
+                >
+                  <span className="comparison-copy">
+                    <strong>{shortProgram(program.programB)}</strong>
+                    <small>{program.thesisCountB} tesis</small>
+                  </span>
+                  <span className="comparison-value">{formatCoefficient(program.similarity)}</span>
+                  <span className="bar-track"><span style={{ width: `${program.similarity * 100}%`, backgroundColor: similarityColor(program.similarity) }} /></span>
                 </button>
               ))}
             </div>
           )}
-          <label className="program-picker">
-            <span>Cambiar programa</span>
-            <select value={selectedName} onChange={(event) => setSelectedName(event.target.value)}>
-              {orderedPrograms.map((program) => <option key={program.degreeProgram}>{program.degreeProgram}</option>)}
-            </select>
-          </label>
         </motion.aside>
       </div>
     </section>

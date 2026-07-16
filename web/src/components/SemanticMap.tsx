@@ -43,6 +43,7 @@ const ROTATION_X = 27
 const COMMUNITY_Z_OFFSET = 0.16
 const COMMUNITY_RING_RADIUS = 0.205
 const COMMUNITY_RING_STEPS = 28
+const THESIS_SPHERE_SCALE = 0.048
 const THESIS_SPHERE = new SphereGeometry({ id: 'thesis-sphere', radius: 1, nlat: 8, nlong: 12 })
 const COMMUNITY_SPHERE = new SphereGeometry({
   id: 'community-sphere',
@@ -297,8 +298,6 @@ export function SemanticMap({
     [fitBounds, mapSize, mode, timelineVisible],
   )
   const fitKey = [
-    mapSize.width,
-    mapSize.height,
     fitBounds.minX,
     fitBounds.maxX,
     fitBounds.minY,
@@ -387,7 +386,7 @@ export function SemanticMap({
           data: points,
           coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
           mesh: THESIS_SPHERE,
-          sizeScale: 0.064,
+          sizeScale: THESIS_SPHERE_SCALE,
           getPosition: (point) => [point.x, point.y, point.z],
           getColor: pointColor,
           getScale: (point) => {
@@ -603,6 +602,7 @@ export function SemanticMap({
       data-camera-rotation-x={mode === '3d' ? ROTATION_X.toFixed(4) : undefined}
       data-point-count={points.length}
       data-highlight-count={highlightedIds?.size ?? points.length}
+      data-thesis-sphere-scale={mode === '3d' ? THESIS_SPHERE_SCALE : undefined}
       onPointerDownCapture={handlePointerDown}
       onPointerUpCapture={handlePointerUp}
     >
