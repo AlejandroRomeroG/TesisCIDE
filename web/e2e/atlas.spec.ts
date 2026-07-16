@@ -157,6 +157,7 @@ async function expectClusterVisibilityPreservesCamera(page: Page, token: string)
 
 async function expectFilterTogglePreservesMap(page: Page, token: string) {
   const canvas = activeSemanticCanvas(page)
+  const camera = await readCameraState(page)
   await canvas.evaluate((element, value) => {
     element.dataset.filterToken = value
   }, token)
@@ -165,12 +166,14 @@ async function expectFilterTogglePreservesMap(page: Page, token: string) {
   await expect(page.locator('.preserved-view.is-active .filter-band')).toBeVisible()
   await page.waitForTimeout(280)
   await expect(canvas).toHaveAttribute('data-filter-token', token)
+  await expect.poll(() => readCameraState(page)).toEqual(camera)
   await expectCanvasHasContent(canvas, 6)
 
   await page.getByRole('button', { name: 'Filtros', exact: true }).click()
   await expect(page.locator('.preserved-view.is-active .filter-band')).toHaveCount(0)
   await page.waitForTimeout(280)
   await expect(canvas).toHaveAttribute('data-filter-token', token)
+  await expect.poll(() => readCameraState(page)).toEqual(camera)
   await expectCanvasHasContent(canvas, 6)
 }
 
@@ -358,6 +361,14 @@ test('desktop atlas renders every analytical surface and animation control', asy
   await expect(page.locator('.program-comparison-bars')).toHaveAttribute('data-comparison-count', '20')
   await expect(page.locator('.program-comparison-bars button')).toHaveCount(20)
   await expect(page.locator('.program-comparison-bars button').first()).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('.program-comparison-bars .comparison-level')).toHaveCount(20)
+  for (const level of ['Licenciatura', 'Maestría', 'Doctorado']) {
+    expect(await page.locator(`.program-comparison-bars [data-program-level="${level}"]`).count()).toBeGreaterThan(0)
+  }
+  const levelColors = await page.locator('.program-comparison-bars button').evaluateAll((buttons) => [
+    ...new Set(buttons.map((button) => getComputedStyle(button.querySelector('.bar-track > span')!).backgroundColor)),
+  ])
+  expect(levelColors).toHaveLength(3)
   await saveScreenshot(page, testInfo, 'atlas-desktop-program-similarity.png')
   await page.getByRole('button', { name: 'Perfil temático' }).click()
   await saveScreenshot(page, testInfo, 'atlas-desktop-programs.png')

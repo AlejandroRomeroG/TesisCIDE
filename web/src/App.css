@@ -1181,6 +1181,22 @@
   font-size: 0.55rem;
 }
 
+.comparison-copy .comparison-level {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.49rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.comparison-level > span {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 1px;
+}
+
 .comparison-value {
   align-self: start;
   color: var(--ink-soft);

@@ -20,12 +20,10 @@ function programAxisLabel(program: ProgramSummary): string {
   return `${prefix} · ${shortProgram(program.degreeProgram)}`
 }
 
-function similarityColor(value: number): string {
-  if (value >= 0.9) return '#0d675a'
-  if (value >= 0.75) return '#4a8c7d'
-  if (value >= 0.6) return '#8bb4a8'
-  if (value >= 0.4) return '#c9d8d2'
-  return '#d8ddd8'
+function programLevelColor(level: string): string {
+  if (level === 'Licenciatura') return '#356fd1'
+  if (level === 'Maestría') return '#178b73'
+  return '#bc641f'
 }
 
 export function ProgramsView({ analytics }: ProgramsViewProps) {
@@ -46,6 +44,10 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
   )
 
   const selected = analytics.programs.find((program) => program.degreeProgram === selectedName) ?? orderedPrograms[0]
+  const programsByName = useMemo(
+    () => new Map(analytics.programs.map((program) => [program.degreeProgram, program])),
+    [analytics.programs],
+  )
   const programNames = orderedPrograms.map((program) => program.degreeProgram)
   const programLabels = orderedPrograms.map(programAxisLabel)
   const clusters = [...analytics.clusters].sort((a, b) => a.id - b.id)
@@ -247,11 +249,15 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
   const similarPrograms = useMemo(
     () => analytics.programSimilarity
       .filter((datum) => datum.programA === selected.degreeProgram && datum.programB !== selected.degreeProgram)
+      .map((datum) => ({
+        ...datum,
+        level: programsByName.get(datum.programB)?.level ?? 'Doctorado',
+      }))
       .sort((a, b) => {
         const selectedDelta = Number(b.programB === selectedComparisonName) - Number(a.programB === selectedComparisonName)
         return selectedDelta || b.similarity - a.similarity || a.programB.localeCompare(b.programB, 'es')
       }),
-    [analytics.programSimilarity, selected.degreeProgram, selectedComparisonName],
+    [analytics.programSimilarity, programsByName, selected.degreeProgram, selectedComparisonName],
   )
 
   function changeMode(nextMode: ProgramMode) {
@@ -375,15 +381,19 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
                   className={program.programB === selectedComparisonName ? 'is-selected' : ''}
                   key={program.programB}
                   type="button"
+                  data-program-level={program.level}
                   aria-pressed={program.programB === selectedComparisonName}
                   onClick={() => selectProgram(program.programB, selected.degreeProgram)}
                 >
                   <span className="comparison-copy">
                     <strong>{shortProgram(program.programB)}</strong>
-                    <small>{program.thesisCountB} tesis</small>
+                    <small className="comparison-level">
+                      <span aria-hidden="true" style={{ backgroundColor: programLevelColor(program.level) }} />
+                      {program.level} · {program.thesisCountB} tesis
+                    </small>
                   </span>
                   <span className="comparison-value">{formatCoefficient(program.similarity)}</span>
-                  <span className="bar-track"><span style={{ width: `${program.similarity * 100}%`, backgroundColor: similarityColor(program.similarity) }} /></span>
+                  <span className="bar-track"><span style={{ width: `${program.similarity * 100}%`, backgroundColor: programLevelColor(program.level) }} /></span>
                 </button>
               ))}
             </div>

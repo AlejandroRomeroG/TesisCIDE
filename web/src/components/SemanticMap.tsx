@@ -272,7 +272,10 @@ export function SemanticMap({
   const mapRef = useRef<HTMLDivElement>(null)
   const deckRef = useRef<DeckGLRef>(null)
   const pointerStartRef = useRef<[number, number] | null>(null)
+  const initialMeasureRef = useRef(false)
+  const fitCacheRef = useRef<{ key: string; state: ReturnType<typeof fitView> } | null>(null)
   const [mapSize, setMapSize] = useState<MapSize>({ width: 960, height: 680 })
+  const [fitSizeVersion, setFitSizeVersion] = useState(0)
 
   useLayoutEffect(() => {
     const element = mapRef.current
@@ -284,6 +287,10 @@ export function SemanticMap({
         const height = Math.round(bounds.height)
         return current.width === width && current.height === height ? current : { width, height }
       })
+      if (!initialMeasureRef.current) {
+        initialMeasureRef.current = true
+        setFitSizeVersion(1)
+      }
     }
     updateSize()
     const observer = new ResizeObserver(updateSize)
@@ -293,10 +300,6 @@ export function SemanticMap({
 
   const fitBounds = useMemo(() => boundsForPoints(fitPoints), [fitPoints])
   const timelineVisible = yearCutoff !== null
-  const fitState = useMemo(
-    () => fitView(fitBounds, mapSize, mode, timelineVisible),
-    [fitBounds, mapSize, mode, timelineVisible],
-  )
   const fitKey = [
     fitBounds.minX,
     fitBounds.maxX,
@@ -304,7 +307,15 @@ export function SemanticMap({
     fitBounds.maxY,
     fitBounds.minZ,
     fitBounds.maxZ,
-  ].map((value) => value.toFixed(2)).join('-')
+  ].map((value) => value.toFixed(6)).join('-')
+  const fitRequestKey = `${mode}-${resetVersion}-${fitKey}-${timelineVisible ? 'timeline' : 'map'}-${fitSizeVersion}`
+  if (fitCacheRef.current?.key !== fitRequestKey) {
+    fitCacheRef.current = {
+      key: fitRequestKey,
+      state: fitView(fitBounds, mapSize, mode, timelineVisible),
+    }
+  }
+  const fitState = fitCacheRef.current.state
 
   const visibleClusterIds = useMemo(() => new Set(points.map((point) => point.clusterId)), [points])
   const visibleClusters = useMemo(
@@ -608,7 +619,7 @@ export function SemanticMap({
     >
       <DeckGL
         ref={deckRef}
-        key={`${mode}-${resetVersion}-${fitKey}`}
+        key={fitRequestKey}
         views={view}
         initialViewState={initialViewState}
         layers={layers}
