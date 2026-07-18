@@ -1,137 +1,219 @@
-# Mapa Semántico de Tesis CIDE
+<div align="center">
+  <img src="web/public/favicon.svg" alt="Monograma AT CIDE" width="96">
+  <h1>Atlas de Tesis del CIDE</h1>
+  <p><strong>Un atlas semántico e interactivo de las tesis de licenciatura, maestría y doctorado del CIDE.</strong></p>
+  <p>
+    <a href="https://github.com/AlejandroRomeroG/TesisCIDE/actions/workflows/deploy-pages.yml"><img alt="GitHub Pages" src="https://github.com/AlejandroRomeroG/TesisCIDE/actions/workflows/deploy-pages.yml/badge.svg"></a>
+    <a href="https://alejandroromerog.github.io/TesisCIDE/"><img alt="Abrir atlas" src="https://img.shields.io/badge/atlas-abrir-D8FF4F?style=flat-square&amp;labelColor=111815"></a>
+    <img alt="2,388 tesis" src="https://img.shields.io/badge/tesis-2%2C388-356FD1?style=flat-square">
+    <img alt="21 programas" src="https://img.shields.io/badge/programas-21-178B73?style=flat-square">
+    <img alt="20 temas" src="https://img.shields.io/badge/temas-20-BC641F?style=flat-square">
+    <img alt="Datos en Parquet" src="https://img.shields.io/badge/datos-Parquet-4B5563?style=flat-square">
+  </p>
+  <p>
+    <a href="#qué-permite-explorar">Qué permite explorar</a> ·
+    <a href="#metodología">Metodología</a> ·
+    <a href="#inicio-rápido">Inicio rápido</a> ·
+    <a href="#arquitectura-del-proyecto">Arquitectura</a> ·
+    <a href="#validación">Validación</a>
+  </p>
+</div>
 
-Proyecto para cosechar las tesis de todas las licenciaturas, maestrías y doctorados del repositorio digital del CIDE y construir un mapa semántico global con embeddings, UMAP, clustering, topic modeling y análisis por programa, nivel, tiempo y profesorado.
+> [!NOTE]
+> Los metadatos proceden del [Repositorio Digital CIDE](https://repositorio-digital.cide.edu/). El atlas es una herramienta independiente de exploración: conserva el enlace a cada ficha original y no sustituye al repositorio institucional.
 
-## Flujo Canónico
+El proyecto cosecha, normaliza y analiza la producción de tesis del CIDE como un solo corpus. Un modelo multilingüe representa el contenido de cada tesis como un embedding; K-Means estima veinte comunidades temáticas y UMAP organiza sus vecindades en mapas 2D y 3D. El resultado combina exploración semántica, evolución temporal, perfiles de programas y redes de profesorado homologado.
 
-El proyecto usa Parquet como formato único de datos tabulares persistidos.
+**Sitio público:** [alejandroromerog.github.io/TesisCIDE](https://alejandroromerog.github.io/TesisCIDE/)
 
-1. Ejecutar `ScrapingTesisCIDE.qmd`.
-2. Generar `tesis_cide.parquet` y `tesis_programas_resumen.parquet`.
-3. Ejecutar `mapa_semantico_tesis.ipynb`.
-4. Generar `clusters_tesis.parquet`, `clusters_resumen.parquet`, los Parquet de variantes de clustering/topic modeling y `semantic_dashboard.html`.
-5. Ejecutar `make web-data` para generar un extracto web validado desde los Parquet y `make web-dev` para abrir el atlas moderno.
+## Qué permite explorar
 
-## Atlas Web
+| Vista | Pregunta que ayuda a responder |
+| --- | --- |
+| **Mapa 2D y 3D** | ¿Qué tesis tratan asuntos parecidos, incluso si pertenecen a programas o idiomas distintos? |
+| **Tiempo** | ¿Cuándo aparecen las comunidades temáticas y cómo crece el corpus año con año? |
+| **Programas** | ¿Qué mezcla temática caracteriza a cada programa y cuáles tienen perfiles más cercanos? |
+| **Temas** | ¿Qué comunidades son más recientes, voluminosas o interdisciplinarias? |
+| **Profesorado** | ¿Qué personas conectan más tesis, programas y territorios temáticos? |
+| **Método** | ¿Cómo se obtuvo, limpió, representó, agrupó y validó la información? |
 
-La experiencia recomendada vive en `web/`: una aplicación responsive con mapa WebGL 2D/3D, película temporal, matrices por programa, territorios temáticos, perfiles de profesorado y una vista metodológica completa. Los Parquet siguen siendo la fuente canónica; `scripts/export_web_data.py` genera únicamente las columnas necesarias para el navegador y detiene el build si no reconcilian identificadores, conteos o participaciones.
+La aplicación conserva el contexto durante la búsqueda: las tesis o personas que no coinciden se atenúan en lugar de desaparecer. Los filtros de nivel, programa y tema pueden combinarse con búsquedas por título, autoría, asesoría, año o contenido temático.
 
-**Sitio público:** [Atlas de Tesis CIDE](https://alejandroromerog.github.io/TesisCIDE/)
+## Cobertura actual
+
+| Dimensión | Cobertura |
+| --- | ---: |
+| Tesis | 2,388 |
+| Abstracts utilizables | 2,388 (100%) |
+| Programas por nivel | 21 |
+| Profesorado homologado | 465 |
+| Macrotemas | 20 |
+| Subtemas de consenso | 32 |
+| Periodo | 1978-2026 |
+| Idiomas | 2,250 español · 137 inglés · 1 sin identificar |
+
+El corte publicado corresponde al 12 de julio de 2026. El último año puede estar incompleto porque el repositorio continúa incorporando registros.
+
+## Metodología
+
+| Etapa | Implementación |
+| --- | --- |
+| **1. Cosecha** | Descubrimiento de colecciones y paginación OAI-PMH sobre DSpace mediante `resumptionToken`. |
+| **2. Base canónica** | Deduplicación por `item_handle`, preservación de campos multivaluados y almacenamiento tabular en Parquet. |
+| **3. Identidades** | Homologación conservadora de profesorado mediante alias, claves normalizadas, fusiones revisadas y reportes editables. |
+| **4. Embeddings** | `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`, 768 dimensiones, entrada formada por título, abstract y materias, con normalización L2. |
+| **5. Comunidades** | K-Means sobre embeddings originales, `k=20`, `n_init=60` y semilla `420`; UMAP se reserva para visualización. |
+| **6. Atlas** | Proyecciones UMAP 2D/3D, agregados por año, nivel, programa y profesorado, reconciliación de conteos y exportación web. |
+
+### Representación semántica
+
+El modelo de lenguaje usado es un Transformer multilingüe especializado en embeddings. La distancia coseno aproxima afinidad de contenido, no calidad, influencia, causalidad ni citación. Autoría, asesoría, nivel, programa y año se excluyen del texto de entrada para evitar que esos metadatos determinen artificialmente la geometría semántica.
+
+Los embeddings se almacenan en `embeddings_tesis.parquet` junto con el modelo y un hash del texto. Si ambos coinciden con el corpus vigente, el notebook reutiliza el cache y permite iterar sobre clustering y visualizaciones sin volver a descargar ni codificar las tesis.
+
+### Comunidades y topic modeling
+
+La solución principal usa K-Means sobre los embeddings multilingües. Se contrasta con K-Means sobre UMAP 2D/3D, spherical K-Means, Ward, NMF, LDA y BERTopic con UMAP 10D, HDBSCAN y c-TF-IDF. Un consenso de coasignaciones produce 32 subtemas y conserva las tres membresías más cercanas de cada tesis junto con un margen de ambigüedad.
+
+Las etiquetas combinan keywords bilingües homologadas, términos distintivos y tesis representativas. `data-raw/topic_keyword_aliases.csv` permite revisar equivalencias como `inflation`/`inflacion`, `labor`/`mercado laboral` o `credit`/`credito` sin modificar el scraper.
+
+### Reducción dimensional
+
+UMAP se ajusta de manera independiente en dos y tres dimensiones con `n_neighbors=30`, `min_dist=0.04`, métrica coseno y semilla `420`. La proyección 3D conserva mejor las vecindades en el corte actual (`trustworthiness=0.895`) que la 2D (`0.874`), pero ambas representan los mismos documentos y comunidades.
+
+## Inicio rápido
+
+### Explorar el frontend con los datos publicados
+
+Requiere Node.js 22 o una versión compatible con Vite 8.
 
 ```bash
-make web-install
-make web-build
-make web-dev
+git clone https://github.com/AlejandroRomeroG/TesisCIDE.git
+cd TesisCIDE
+npm --prefix web ci
+npm --prefix web run dev -- --host 127.0.0.1
 ```
 
-El frontend usa React 19, TypeScript, Vite, deck.gl, Apache ECharts, Motion y Lucide. `make web-check` ejecuta lint, build y pruebas Playwright desktop/móvil con comprobación de canvases.
+Vite mostrará la URL local. Los JSON de `web/public/data/` son derivados de los Parquet canónicos y ya están incluidos para facilitar la revisión del sitio.
 
-## Archivos Principales
+### Preparar el entorno analítico
 
-- `ScrapingTesisCIDE.qmd`: cosecha OAI-PMH de la comunidad completa de tesis, descubrimiento automático de programas, validación y homologación de profesorado.
-- `mapa_semantico_tesis.ipynb`: lectura del Parquet canónico, embeddings multilingües, UMAP, diagnóstico de clusters, visualizaciones y exportación de resultados analíticos.
-- `scripts/export_web_data.py`: exportación compacta y reconciliada de los Parquet al contrato de datos del navegador.
-- `web/`: aplicación interactiva moderna y pruebas end-to-end.
-- `data-raw/asesores_alias.csv`: tabla editable de alias para normalizar nombres de asesores.
-- `data-raw/asesores_canonicos_merge.csv`: fusiones revisadas entre grupos canónicos de nombres que pertenecen a la misma persona.
-- `data-raw/topic_keyword_aliases.csv`: tabla editable de alias bilingües para homologar keywords temáticas en español e inglés.
-- `data-quality/asesores_sin_alias.csv`: variantes sin alias explícito, con nombre canónico determinístico sugerido.
-- `data-quality/asesores_posibles_duplicados.csv`: pares aproximados que aún requieren revisión; puede quedar vacío.
-- `tesis_cide.parquet`: base canónica de todas las tesis y sus dimensiones de nivel, programa y colección.
-- `tesis_programas_resumen.parquet`: cobertura, años e idiomas por colección académica.
-- `asesores_catalogo.parquet`: catálogo canónico de profesorado, variantes observadas, programas y volumen de tesis.
-- `tesis_lic_economia_cide.parquet`: snapshot legado de la antigua muestra exclusiva de Licenciatura en Economía.
-- `embeddings_tesis.parquet`: cache de embeddings por tesis y modelo.
-- `model_benchmark.parquet`: comparación local de modelos multilingües candidatos.
-- `clusters_tesis.parquet`: tesis con cluster y coordenadas UMAP 2D/3D.
-- `clusters_resumen.parquet`: resumen enriquecido por cluster, con nombre temático, keywords, tesis representativas y asesores principales.
-- `cluster_diagnostics.parquet`: métricas para elegir número de clusters y comparar espacios de clustering.
-- `umap_diagnostics.parquet`: comparación de trustworthiness entre la proyección UMAP 2D y la exploración UMAP 3D.
-- `cluster_variants.parquet`: asignación de cada tesis bajo K-Means sobre embeddings, UMAP 2D y UMAP 3D.
-- `cluster_variant_summary.parquet`: keywords, nombres automáticos y tesis representativas por variante experimental.
-- `cluster_variant_metrics.parquet`: comparación de silhouette, dependencia de idioma y traslape de keywords entre variantes.
-- `topic_model_metrics.parquet`: métricas interpretativas de topic modeling, incluyendo coherencia `c_v`, diversidad, outliers, balance, score interpretativo y traslape.
-- `topic_model_frontier.parquet`: variantes no dominadas en una frontera Pareto de coherencia, bajo traslape, balance, baja dependencia de idioma y estabilidad.
-- `topic_stability.parquet`: métricas de robustez por variante, incluyendo estabilidad por semillas, bootstrap/submuestras y margen de asignación.
-- `topic_memberships.parquet`: membresías suaves top-3 por tesis para los subtemas del consenso ensemble.
-- `topic_taxonomy.parquet`: taxonomía jerárquica macrotema × subtema construida desde clusters principales y consenso entre modelos.
-- `cluster_keyword_overlap.parquet`: pares de clusters con keywords compartidas para auditar solapamientos temáticos.
-- `cluster_anio.parquet`: grilla completa año × cluster para evolución temporal, incluyendo ceros.
-- `cluster_lifecycle.parquet`: resumen de ciclo de vida por cluster, con año de inicio, pico y cambio de participación por década.
-- `cluster_idioma.parquet`: distribución de idioma por cluster.
-- `cluster_programa.parquet`: composición de cada cluster por programa y perfil de temas dentro de cada programa.
-- `cluster_nivel.parquet`: composición de cada cluster por nivel académico.
-- `cluster_interdisciplinariedad.parquet`: entropía entre programas, concentración, programa dominante y número efectivo de programas por tema.
-- `programa_cluster_resumen.parquet`: tema principal, diversidad y top de temas para cada combinación nivel-programa.
-- `programa_similitud.parquet`: similitud coseno entre programas a partir de su distribución temática.
-- `programa_anio.parquet`: producción anual por nivel y programa.
-- `asesor_cluster_resumen.parquet`: cruce asesor-cluster.
-- `asesor_resumen.parquet`: volumen y diversidad temática por asesor.
-- `semantic_dashboard.html`: dashboard metodológico autocontenido exportado desde la notebook; se conserva como respaldo analítico.
-
-## Dependencias
-
-R:
-
-```r
-install.packages(c("arrow", "dplyr", "purrr", "stringi", "stringr", "tibble", "xml2"))
-```
-
-Python:
+Requiere R, Quarto, Python 3.11 y `uv`.
 
 ```bash
 uv venv --python 3.11 .venv
-uv pip install --python .venv/bin/python -r requirements.txt
-```
-
-Para reproducir exactamente el entorno probado en esta máquina:
-
-```bash
 uv pip install --python .venv/bin/python -r requirements.lock.txt
+Rscript -e 'install.packages("renv"); renv::restore()'
 ```
 
-## Ejecución
+El archivo `requirements.lock.txt` fija el entorno de Python probado. `renv.lock` hace lo propio para R.
 
-Con Quarto instalado:
-
-```bash
-quarto render ScrapingTesisCIDE.qmd --execute
-```
-
-En esta máquina también hay una instalación local ignorada por git en `.tools/quarto`, y `make scrape` la usa automáticamente si existe.
-
-Para ejecutar el notebook desde terminal:
-
-```bash
-.venv/bin/jupyter nbconvert --to notebook --execute --ExecutePreprocessor.timeout=-1 --inplace mapa_semantico_tesis.ipynb
-```
-
-También puedes usar:
+### Ejecutar el pipeline
 
 ```bash
 make scrape
 make clusters
-make web-build
-make web-dev
+make web-data
+make web-check
 ```
 
-## Notas Metodológicas
+| Comando | Resultado |
+| --- | --- |
+| `make scrape` | Cosecha OAI-PMH, normaliza metadatos, homologa profesorado y genera el Parquet canónico. |
+| `make clusters` | Ejecuta embeddings, UMAP, clustering, topic modeling, diagnósticos y agregados analíticos. |
+| `make web-data` | Produce y reconcilia los extractos JSON usados por el navegador. |
+| `make web-build` | Regenera los datos web y compila la aplicación. |
+| `make web-check` | Ejecuta exportación, lint, build y pruebas Playwright responsive. |
+| `make web-dev` | Regenera el extracto y abre el servidor de desarrollo. |
 
-- El scraper usa el endpoint OAI-PMH de DSpace. Descubre automáticamente las colecciones cuyo nombre corresponde a tesis de licenciatura, maestría o doctorado y cosecha la comunidad `com_11651_3` mediante `resumptionToken`.
-- Los metadatos multivaluados se conservan: autores, resúmenes bilingües, materias y coasesores. Los acentos permanecen en UTF-8 dentro de Parquet y HTML.
-- La homologación de profesorado combina alias explícitos, claves determinísticas sin títulos/acentos/puntuación, fusiones canónicas revisadas y un reporte conservador de similitudes pendientes. Los coasesores se analizan como personas separadas.
-- El clustering principal usa K-Means sobre embeddings multilingües; UMAP se usa como layout visual. La notebook también calcula K-Means sobre UMAP 2D/3D, spherical K-Means, Ward, NMF, LDA y BERTopic/HDBSCAN con UMAP 10D, `min_cluster_size=25`, `min_samples=2` y c-TF-IDF.
-- El `interpretability_score` combina coherencia, diversidad, bajo traslape, balance de tamaños, ausencia de singleton topics y penalización moderada por outliers. Sirve para ordenar candidatos, no como sustituto de revisión sustantiva.
-- La variante BERTopic/HDBSCAN puede producir outliers; estos se conservan explícitamente para no forzar tesis ambiguas dentro de temas poco robustos.
-- La proyección UMAP 3D se exporta como vista exploratoria (`umap_z`) y no cambia por sí sola el clustering principal; sirve para inspeccionar vecindades que el mapa 2D puede comprimir.
-- La notebook calcula un consenso ensemble: combina co-asignaciones ponderadas de K-Means, UMAP 2D/3D, spherical K-Means, Ward, NMF y BERTopic, y luego reclusteriza esa matriz para obtener subtemas más estables.
-- La taxonomía jerárquica cruza 20 macrotemas con 32 subtemas del consenso. Esto permite leer la colección en dos escalas: campos amplios del CIDE y especializaciones internas.
-- `topic_memberships.parquet` evita forzar una tesis a un solo tema: conserva los tres subtemas de consenso más cercanos y un margen de ambigüedad para detectar tesis híbridas.
-- `topic_model_frontier.parquet` evita elegir el "mejor" modelo con una sola métrica. Conserva los modelos no dominados entre coherencia, bajo traslape, balance, outliers, dependencia de idioma y estabilidad.
-- `topic_stability.parquet` agrega una auditoría de robustez con semillas, submuestras y margen de asignación. El `robust_interpretability_score` combina el score interpretativo con esa estabilidad.
-- `data-raw/topic_keyword_aliases.csv` homologa keywords bilingües como `inflation`/`inflacion`, `labor`/`mercado laboral` o `credit`/`credito`. Editar este CSV y volver a correr `make clusters` permite mejorar etiquetas sin tocar el scraper.
-- El modelo de embeddings por defecto es `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`. Es más pesado que MiniLM, pero en el benchmark local produjo mejor cohesión semántica y menor dependencia del idioma. Puedes probar otro modelo con `ST_MODEL_NAME=... make clusters`.
-- El número de macroclusters queda configurado en `ST_CLUSTER_K` y por defecto usa `20`; `ST_TOPIC_MODEL_K` controla los subtemas y usa `32`.
-- Los clusters tienen dos identificadores: `cluster_label` conserva el id técnico y `cluster_theme` contiene el nombre interpretativo basado en keywords.
-- El dashboard HTML incluye película acumulativa, carrera anual de temas, mapas 2D/3D, composición por nivel, heatmap programa-tema, similitud entre programas, clusters interdisciplinarios, perfiles de programas y redes de profesorado.
-- Si el repositorio cambia, revisar `data-quality/asesores_sin_alias.csv` y `data-quality/asesores_posibles_duplicados.csv`; promover correcciones a las dos tablas editables de `data-raw/` y volver a correr `make scrape`.
+La cosecha requiere acceso al Repositorio Digital CIDE. Las etapas posteriores trabajan exclusivamente con archivos locales y no vuelven a scrapear.
+
+## Arquitectura del proyecto
+
+| Ruta | Responsabilidad |
+| --- | --- |
+| `ScrapingTesisCIDE.qmd` | Cosecha OAI-PMH, controles de calidad, clasificación de programas y homologación de profesorado. |
+| `tesis_cide.parquet` | Base canónica de tesis; fuente tabular primaria de todo el análisis. |
+| `mapa_semantico_tesis.ipynb` | Embeddings, benchmark de modelos, UMAP, clustering, topic modeling, validación y exportaciones analíticas. |
+| `scripts/export_web_data.py` | Contrato entre los Parquet y el frontend; rechaza inconsistencias antes de escribir JSON. |
+| `web/src/` | Aplicación React/TypeScript con deck.gl, Apache ECharts y Motion. |
+| `web/e2e/` | Pruebas Playwright de interacción, cámara, tooltips, responsive y contenido de canvases. |
+| `data-raw/` | Tablas editables de alias y fusiones canónicas. |
+| `data-quality/` | Reportes conservadores de nombres pendientes o posibles duplicados. |
+
+### Productos tabulares principales
+
+| Archivo | Contenido |
+| --- | --- |
+| `clusters_tesis.parquet` | Tesis, comunidad principal, subtemas y coordenadas UMAP 2D/3D. |
+| `clusters_resumen.parquet` | Nombre, keywords, cobertura, tesis representativas y profesorado principal por comunidad. |
+| `cluster_diagnostics.parquet` | Diagnósticos por `k` y espacio de agrupamiento. |
+| `cluster_variant_metrics.parquet` | Métricas comparables de estructura, interpretación y dependencia de metadatos. |
+| `topic_model_frontier.parquet` | Soluciones no dominadas en la frontera de coherencia, traslape, balance y estabilidad. |
+| `topic_stability.parquet` | Estabilidad entre semillas, submuestras y márgenes de asignación. |
+| `topic_memberships.parquet` | Membresías suaves top-3 y ambigüedad por tesis. |
+| `topic_taxonomy.parquet` | Taxonomía de macrotemas y subtemas de consenso. |
+| `programa_similitud.parquet` | Similitud coseno entre distribuciones temáticas de programas. |
+| `asesor_resumen.parquet` | Volumen, cobertura temporal, programas y diversidad temática por persona. |
+
+Todos los datos tabulares persistentes usan Parquet. `semantic_dashboard.html` se conserva como respaldo analítico autocontenido; la experiencia pública recomendada es la aplicación en `web/`.
+
+## Homologación de profesorado
+
+La normalización separa decisiones curatoriales del código:
+
+| Archivo | Uso |
+| --- | --- |
+| `data-raw/asesores_alias.csv` | Asigna variantes observadas a una forma canónica. |
+| `data-raw/asesores_canonicos_merge.csv` | Fusiona grupos canónicos confirmados como la misma persona. |
+| `data-quality/asesores_sin_alias.csv` | Lista variantes todavía resueltas solo por reglas determinísticas. |
+| `data-quality/asesores_posibles_duplicados.csv` | Sugiere pares similares para revisión; no los fusiona automáticamente. |
+
+Después de una nueva cosecha deben revisarse ambos reportes y promoverse únicamente las correcciones confirmadas a las tablas de `data-raw/`.
+
+## Validación
+
+La calidad no se decide con una sola puntuación.
+
+- **Integridad:** unicidad de identificadores, coordenadas completas, Unicode NFC, ausencia de entidades HTML y reconciliación de totales.
+- **Estructura:** silhouette, Davies-Bouldin y Calinski-Harabasz.
+- **Sesgo de metadatos:** NMI entre comunidades e idioma, programa y nivel.
+- **Interpretación:** coherencia `c_v`, diversidad temática, balance, outliers y traslape Jaccard de keywords.
+- **Robustez:** estabilidad entre semillas, bootstraps y submuestras, más una frontera de Pareto entre objetivos rivales.
+- **Proyección:** `trustworthiness` para evaluar cuánto preservan UMAP 2D y 3D las vecindades originales.
+- **Frontend:** lint, TypeScript, build de producción y pruebas E2E en escritorio, móvil, retrato compacto y paisaje compacto.
+
+```bash
+npm --prefix web run lint
+npm --prefix web run build
+npm --prefix web run test:e2e
+```
+
+## Configuración analítica
+
+El notebook acepta variables de entorno para experimentar sin editar sus celdas.
+
+| Variable | Valor predeterminado | Propósito |
+| --- | --- | --- |
+| `ST_MODEL_NAME` | `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` | Modelo de embeddings. |
+| `ST_CLUSTER_K` | `20` | Número de macrocomunidades. |
+| `ST_TOPIC_MODEL_K` | `32` | Número de subtemas para variantes y consenso. |
+| `ST_BATCH_SIZE` | `8` para MPNet | Tamaño de lote de codificación. |
+| `ST_DEVICE` | CUDA si está disponible; CPU en otro caso | Dispositivo de inferencia. |
+| `ST_TOPIC_STABILITY_BOOTSTRAPS` | `6` | Número de submuestras para la auditoría de estabilidad. |
+
+## Alcance y límites
+
+- Las comunidades son una ayuda analítica, no categorías oficiales del CIDE.
+- La cercanía en el mapa aproxima similitud semántica local y no demuestra citación, influencia, calidad o causalidad.
+- UMAP puede comprimir o separar vecindades; los ejes, la orientación y la escala absoluta no tienen significado sustantivo.
+- Las etiquetas resumen grupos y no agotan la posible lectura de tesis híbridas.
+- El año más reciente puede estar incompleto mientras el repositorio incorpora nuevos registros.
+- El snapshot legado `tesis_lic_economia_cide.parquet` se conserva por compatibilidad histórica, pero no alimenta el atlas global.
+
+## Autor
+
+Creado y mantenido por **Alejandro Romero González**.
+
+- Sitio personal: [alejandroromerog.github.io](https://alejandroromerog.github.io/)
+- Fuente institucional: [Repositorio Digital CIDE](https://repositorio-digital.cide.edu/)

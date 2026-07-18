@@ -1,9 +1,9 @@
-import { useMemo, useState, type CSSProperties } from 'react'
+import { useMemo, useState } from 'react'
 import { motion } from 'motion/react'
 import { ArrowRight, Sparkles } from 'lucide-react'
 import { EChart, type ResponsiveChartOption } from './EChart'
 import type { AnalyticsPayload } from '../types'
-import { CLUSTER_COLORS, alphaColor, clusterColor } from '../lib/colors'
+import { CLUSTER_COLORS, clusterColor } from '../lib/colors'
 import { formatCoefficient, formatNumber, formatPercent } from '../lib/format'
 
 interface TopicsViewProps {
@@ -15,7 +15,8 @@ interface TopicClick {
 }
 
 export function TopicsView({ analytics }: TopicsViewProps) {
-  const initialCluster = [...analytics.clusters].sort((a, b) => b.interdisciplinarity - a.interdisciplinarity)[0]
+  const initialCluster = analytics.clusters.find((cluster) => cluster.theme === 'Crimen, violencia y seguridad')
+    ?? analytics.clusters[0]
   const [selectedId, setSelectedId] = useState(initialCluster.id)
   const selected = analytics.clusters.find((cluster) => cluster.id === selectedId) ?? initialCluster
 
@@ -133,20 +134,6 @@ export function TopicsView({ analytics }: TopicsViewProps) {
             ariaLabel="Dispersión de clusters por año promedio e interdisciplinariedad"
             onClick={handleClick}
           />
-          <div className="topic-selector" aria-label="Seleccionar territorio temático">
-            {analytics.clusters.map((cluster) => (
-              <button
-                key={cluster.id}
-                type="button"
-                aria-pressed={selectedId === cluster.id}
-                onClick={() => setSelectedId(cluster.id)}
-                style={{ '--topic-color': clusterColor(cluster.id), '--topic-soft': alphaColor(clusterColor(cluster.id), 0.12) } as CSSProperties}
-              >
-                <span>{String(cluster.id).padStart(2, '0')}</span>
-                {cluster.theme}
-              </button>
-            ))}
-          </div>
         </div>
 
         <motion.aside

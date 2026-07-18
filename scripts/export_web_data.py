@@ -128,6 +128,8 @@ def main() -> None:
     cluster_levels = read_parquet("cluster_nivel.parquet")
     advisors = read_parquet("asesor_resumen.parquet")
     advisor_topics = read_parquet("asesor_cluster_resumen.parquet")
+    embeddings = read_parquet("embeddings_tesis.parquet")
+    umap_diagnostics = read_parquet("umap_diagnostics.parquet")
 
     validate_sources(theses, clusters, programs, program_matrix)
 
@@ -232,6 +234,13 @@ def main() -> None:
     year_totals = theses.groupby("anio_pub").size()
     level_counts = theses["nivel"].value_counts()
     language_counts = theses["idioma"].value_counts()
+    abstract_count = int(theses["resumen"].fillna("").astype(str).str.strip().str.len().ge(40).sum())
+    embedding_columns = [column for column in embeddings.columns if column.startswith("embedding_")]
+    umap_trustworthiness = umap_diagnostics.set_index("projection")["trustworthiness"]
+    if len(embeddings) != len(theses) or not embedding_columns:
+        raise ValueError("Embedding cache does not match the canonical thesis dataset.")
+    if not {"umap_2d", "umap_3d"}.issubset(umap_trustworthiness.index):
+        raise ValueError("UMAP diagnostics must contain the 2D and 3D projections.")
     source_mtime = max(
         (ROOT / name).stat().st_mtime
         for name in [
@@ -251,10 +260,16 @@ def main() -> None:
             "programCount": int(theses["grado_programa"].nunique()),
             "advisorCount": int(len(advisors)),
             "clusterCount": int(theses["cluster_id"].nunique()),
+            "abstractCount": abstract_count,
             "yearMin": int(theses["anio_pub"].min()),
             "yearMax": int(theses["anio_pub"].max()),
             "embeddingModel": text(clusters["embedding_model"].dropna().iloc[0]),
+            "embeddingDimension": int(len(embedding_columns)),
             "clusterAlgorithm": text(clusters["cluster_algo"].dropna().iloc[0]),
+            "umapTrustworthiness": {
+                "twoD": float(umap_trustworthiness.loc["umap_2d"]),
+                "threeD": float(umap_trustworthiness.loc["umap_3d"]),
+            },
             "levelCounts": {text(key): int(value) for key, value in level_counts.items()},
             "languageCounts": {text(key): int(value) for key, value in language_counts.items()},
             "yearTotals": {str(int(key)): int(value) for key, value in year_totals.items()},

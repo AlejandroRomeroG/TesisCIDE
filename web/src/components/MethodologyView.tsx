@@ -12,7 +12,7 @@ import {
   UserRoundCheck,
 } from 'lucide-react'
 import type { AtlasMeta } from '../types'
-import { formatNumber, updatedDate } from '../lib/format'
+import { formatCoefficient, formatNumber, formatPercent, updatedDate } from '../lib/format'
 
 interface MethodologyViewProps {
   meta: AtlasMeta
@@ -36,43 +36,47 @@ const OUTCOMES = [
   },
 ]
 
-const PIPELINE = [
-  {
-    icon: Database,
-    title: 'Reunimos todas las tesis',
-    copy: 'Leemos las fichas públicas del Repositorio Digital CIDE e incluimos licenciaturas, maestrías y doctorados en una sola colección.',
-  },
-  {
-    icon: Braces,
-    title: 'Ponemos orden en los datos',
-    copy: 'Quitamos duplicados, conservamos autores y temas múltiples, corregimos texto codificado y cuidamos acentos, eñes y caracteres especiales.',
-  },
-  {
-    icon: UserRoundCheck,
-    title: 'Unimos variantes del mismo nombre',
-    copy: 'Tratamos títulos, abreviaturas y formas distintas de escribir al profesorado para que una misma persona no aparezca varias veces.',
-  },
-  {
-    icon: Languages,
-    title: 'Comparamos de qué habla cada tesis',
-    copy: 'Un modelo multilingüe lee títulos y resúmenes en español e inglés y convierte su significado en coordenadas comparables.',
-  },
-  {
-    icon: Network,
-    title: 'Formamos comunidades temáticas',
-    copy: 'Agrupamos las tesis más cercanas y contrastamos varias soluciones antes de elegir veinte temas que sean útiles para explorar.',
-  },
-  {
-    icon: MapPinned,
-    title: 'Convertimos el resultado en un atlas',
-    copy: 'Proyectamos las relaciones en 2D y 3D, sumamos tiempo, programas y profesorado, y comprobamos los totales antes de publicar.',
-  },
-]
+function methodologyPipeline(modelName: string, embeddingDimension: number) {
+  return [
+    {
+      icon: Database,
+      title: 'Reunimos el corpus de tesis',
+      copy: 'Cosechamos las fichas públicas del Repositorio Digital CIDE mediante OAI-PMH y reunimos licenciaturas, maestrías y doctorados en una base canónica con identificadores únicos.',
+    },
+    {
+      icon: Braces,
+      title: 'Estandarizamos los metadatos',
+      copy: 'Preservamos autores, asesores, materias y abstracts multivaluados; eliminamos duplicados y normalizamos Unicode, espacios, entidades HTML, acentos y caracteres especiales.',
+    },
+    {
+      icon: UserRoundCheck,
+      title: 'Homologamos los nombres del profesorado',
+      copy: 'Comparamos títulos, abreviaturas, orden de apellidos y variantes ortográficas con catálogos editables y revisión conservadora para reunir cada identidad sin fusionar personas distintas.',
+    },
+    {
+      icon: Languages,
+      title: 'Representamos el contenido como vectores',
+      copy: `Un modelo de lenguaje (LLM) de tipo Transformer especializado en embeddings, ${modelName}, procesa título, abstract y materias en español e inglés y produce un vector de ${embeddingDimension} dimensiones por tesis.`,
+    },
+    {
+      icon: Network,
+      title: 'Estimamos comunidades temáticas',
+      copy: 'Aplicamos K-Means en el espacio semántico original y contrastamos la solución con métodos alternativos, métricas internas, estabilidad y traslape de palabras clave antes de interpretar veinte comunidades.',
+    },
+    {
+      icon: MapPinned,
+      title: 'Construimos y validamos el Atlas',
+      copy: 'UMAP proyecta las vecindades en 2D y 3D sin definir los grupos. Después integramos tiempo, programas y profesorado, reconciliamos todos los conteos y publicamos el resultado interactivo.',
+    },
+  ]
+}
 
 export function MethodologyView({ meta }: MethodologyViewProps) {
   const modelName = meta.embeddingModel.split('/').at(-1) ?? meta.embeddingModel
   const spanishCount = meta.languageCounts.spa ?? 0
   const englishCount = meta.languageCounts.eng ?? 0
+  const unknownLanguageCount = meta.languageCounts.desconocido ?? 0
+  const pipeline = methodologyPipeline(modelName, meta.embeddingDimension)
 
   return (
     <section className="methodology-view" aria-label="Metodología del atlas">
@@ -116,12 +120,11 @@ export function MethodologyView({ meta }: MethodologyViewProps) {
       </section>
 
       <div className="method-pipeline-intro">
-        <span className="eyebrow">El proceso, sin jerga</span>
-        <h3>Seis pasos del repositorio al mapa</h3>
-        <p>Cada punto conserva un vínculo con su ficha original y pasa por la misma cadena de limpieza y análisis.</p>
+        <h3>Seis pasos para llegar al Atlas desde el repositorio del CIDE</h3>
+        <p>Cada tesis conserva su identificador y vínculo de origen mientras pasa por una cadena común de limpieza, representación semántica, agrupamiento y validación.</p>
       </div>
       <ol className="method-pipeline">
-        {PIPELINE.map(({ icon: Icon, title, copy }, index) => (
+        {pipeline.map(({ icon: Icon, title, copy }, index) => (
           <li key={title}>
             <div className="method-step-index">
               <span>{String(index + 1).padStart(2, '0')}</span>
@@ -140,7 +143,7 @@ export function MethodologyView({ meta }: MethodologyViewProps) {
           <span className="eyebrow">Qué significa estar cerca</span>
           <h3>Dos puntos cercanos suelen tratar asuntos parecidos</h3>
           <p>
-            La distancia resume similitud de contenido en títulos y resúmenes. No indica calidad, influencia,
+            La distancia resume similitud de contenido en títulos, abstracts y materias. No indica calidad, influencia,
             causalidad ni que una tesis cite a la otra.
           </p>
           <p>
@@ -170,6 +173,7 @@ export function MethodologyView({ meta }: MethodologyViewProps) {
         </div>
         <ul>
           <li>Cada tesis aparece una sola vez y mantiene su enlace al repositorio.</li>
+          <li>Las {formatNumber(meta.abstractCount)} fichas, equivalentes al {formatPercent(meta.abstractCount / meta.thesisCount)}, incluyen un abstract utilizable.</li>
           <li>Los totales por tema y programa coinciden con la base principal.</li>
           <li>Los nombres homologados pasan por tablas editables y reportes de revisión.</li>
           <li>Los acentos y caracteres especiales llegan completos al sitio.</li>
@@ -182,7 +186,7 @@ export function MethodologyView({ meta }: MethodologyViewProps) {
           <h3>Lo que el atlas no puede afirmar</h3>
         </div>
         <ul>
-          <li>Una ficha sin resumen aporta menos contexto que una ficha completa.</li>
+          <li>Las distancias y comunidades dependen del modelo y de decisiones analíticas; no son categorías oficiales del CIDE.</li>
           <li>Los temas son una ayuda para explorar; no sustituyen la lectura de cada tesis.</li>
           <li>El último año puede estar incompleto porque el repositorio sigue recibiendo registros.</li>
         </ul>
@@ -192,64 +196,85 @@ export function MethodologyView({ meta }: MethodologyViewProps) {
         <summary>
           <Braces size={23} strokeWidth={1.6} aria-hidden="true" />
           <span>
-            <span className="eyebrow">Para quien quiera auditarlo</span>
-            <strong>Ver ficha técnica y reproducibilidad</strong>
-            <small>Modelo, parámetros, validaciones, formatos y comandos.</small>
+            <span className="eyebrow">Para las personas más curiosas</span>
+            <strong>Ver ficha técnica ampliada</strong>
+            <small>Corpus, modelo, parámetros, criterios de validación y formatos.</small>
           </span>
           <ChevronDown className="method-technical-chevron" size={21} aria-hidden="true" />
         </summary>
         <div className="method-technical-body">
           <section>
-            <span className="eyebrow">Datos</span>
-            <h3>Extracción y limpieza</h3>
+            <span className="eyebrow">Diseño del corpus</span>
+            <h3>Fuente, unidad de análisis y cobertura</h3>
             <dl>
-              <div><dt>Origen</dt><dd>Repositorio Digital CIDE, cosechado por OAI-PMH con paginación por <code>resumptionToken</code>.</dd></div>
-              <div><dt>Base canónica</dt><dd><code>tesis_cide.parquet</code>, con identificadores únicos y campos multivaluados preservados.</dd></div>
-              <div><dt>Texto</dt><dd>Unicode NFC, UTF-8 y una validación que rechaza entidades HTML residuales.</dd></div>
-              <div><dt>Profesorado</dt><dd>Alias explícitos, claves normalizadas, fusiones revisadas y reportes de posibles duplicados.</dd></div>
+              <div><dt>Origen</dt><dd>Repositorio Digital CIDE sobre DSpace; cosecha OAI-PMH de la comunidad institucional con paginación mediante <code>resumptionToken</code>.</dd></div>
+              <div><dt>Unidad</dt><dd>Una tesis identificada por su <code>item_handle</code>; el enlace al registro original se conserva como referencia primaria.</dd></div>
+              <div><dt>Cobertura</dt><dd>{formatNumber(meta.thesisCount)} tesis de {meta.programCount} combinaciones nivel-programa entre {meta.yearMin} y {meta.yearMax}.</dd></div>
+              <div><dt>Abstracts</dt><dd>{formatNumber(meta.abstractCount)} registros con abstract utilizable; cobertura de {formatPercent(meta.abstractCount / meta.thesisCount)}.</dd></div>
+              <div><dt>Base canónica</dt><dd><code>tesis_cide.parquet</code>, con un registro por tesis y metadatos multivaluados preservados.</dd></div>
+            </dl>
+          </section>
+
+          <section>
+            <span className="eyebrow">Preparación de datos</span>
+            <h3>Normalización textual y de identidades</h3>
+            <dl>
+              <div><dt>Codificación</dt><dd>UTF-8 y normalización Unicode NFC; la exportación rechaza entidades HTML residuales y coordenadas o identificadores faltantes.</dd></div>
+              <div><dt>Campos múltiples</dt><dd>Autores, asesores, abstracts y materias se conservan como listas; no se reducen al primer valor disponible.</dd></div>
+              <div><dt>Duplicados</dt><dd>El identificador persistente funciona como clave primaria y se valida su unicidad antes del análisis.</dd></div>
+              <div><dt>Profesorado</dt><dd>Alias explícitos, claves sin títulos ni puntuación, fusiones canónicas revisadas y reportes conservadores de posibles duplicados.</dd></div>
+              <div><dt>Tablas editables</dt><dd><code>asesores_alias.csv</code> y <code>asesores_canonicos_merge.csv</code> separan las decisiones de homologación del código.</dd></div>
             </dl>
           </section>
 
           <section>
             <span className="eyebrow">Representación semántica</span>
-            <h3>Un vector por tesis</h3>
+            <h3>Un embedding normalizado por tesis</h3>
             <dl>
-              <div><dt>Transformer</dt><dd><code>{modelName}</code></dd></div>
-              <div><dt>Entrada</dt><dd>Título y resumen; cuando no hay resumen, el título conserva la señal disponible.</dd></div>
-              <div><dt>Comparación</dt><dd>Embeddings normalizados y distancia coseno.</dd></div>
-              <div><dt>Idiomas</dt><dd>{formatNumber(spanishCount)} registros en español y {formatNumber(englishCount)} en inglés.</dd></div>
+              <div><dt>Familia</dt><dd>Sentence-Transformers con arquitectura MPNet multilingüe, usada como modelo de lenguaje especializado en similitud semántica.</dd></div>
+              <div><dt>Modelo</dt><dd><code>{meta.embeddingModel}</code></dd></div>
+              <div><dt>Entrada</dt><dd>Concatenación de título, abstract y materias después de normalizar espacios; no se incluyen autoría, programa, nivel ni año.</dd></div>
+              <div><dt>Dimensión</dt><dd>{formatNumber(meta.embeddingDimension)} componentes de punto flotante por tesis.</dd></div>
+              <div><dt>Geometría</dt><dd>Normalización L2 durante la codificación y comparación mediante similitud o distancia coseno.</dd></div>
+              <div><dt>Idiomas</dt><dd>{formatNumber(spanishCount)} tesis en español, {formatNumber(englishCount)} en inglés y {formatNumber(unknownLanguageCount)} sin idioma identificado.</dd></div>
             </dl>
           </section>
 
           <section>
-            <span className="eyebrow">Comunidades y mapa</span>
-            <h3>El agrupamiento no depende del dibujo</h3>
+            <span className="eyebrow">Estimación temática</span>
+            <h3>Las comunidades se calculan antes del mapa</h3>
             <dl>
-              <div><dt>Solución principal</dt><dd><code>{meta.clusterAlgorithm}</code>, <code>k={meta.clusterCount}</code>, <code>n_init=60</code> y semilla <code>420</code>.</dd></div>
-              <div><dt>Proyección</dt><dd>UMAP 2D y 3D con <code>n_neighbors=30</code>, <code>min_dist=0.04</code> y métrica coseno.</dd></div>
-              <div><dt>Contrastes</dt><dd>K-Means sobre UMAP, spherical K-Means, Ward, NMF, LDA, BERTopic/HDBSCAN y consenso entre modelos.</dd></div>
-              <div><dt>Etiquetas</dt><dd>Palabras clave bilingües homologadas y tesis representativas por comunidad.</dd></div>
+              <div><dt>Solución principal</dt><dd><code>{meta.clusterAlgorithm}</code> sobre los embeddings originales, con <code>k={meta.clusterCount}</code>, <code>n_init=60</code> y semilla <code>420</code>.</dd></div>
+              <div><dt>Granularidad</dt><dd>Se diagnostican valores pares de <code>k</code> entre 8 y 30; veinte macrotemas se conservan por utilidad interpretativa y cobertura sustantiva.</dd></div>
+              <div><dt>Contrastes</dt><dd>K-Means sobre UMAP 2D/3D, spherical K-Means, Ward, NMF, LDA y BERTopic con UMAP 10D, HDBSCAN y c-TF-IDF.</dd></div>
+              <div><dt>Consenso</dt><dd>Las coasignaciones entre modelos producen 32 subtemas y membresías top-3 con margen de ambigüedad por tesis.</dd></div>
+              <div><dt>Etiquetas</dt><dd>Keywords bilingües homologadas, términos distintivos, tesis representativas y revisión sustantiva de cada comunidad.</dd></div>
             </dl>
           </section>
 
           <section>
-            <span className="eyebrow">Validación y entrega</span>
-            <h3>Varias pruebas, no una sola puntuación</h3>
+            <span className="eyebrow">Reducción dimensional</span>
+            <h3>UMAP organiza la vista, no decide los grupos</h3>
             <dl>
-              <div><dt>Estructura</dt><dd>Silhouette, Davies-Bouldin, Calinski-Harabasz y dependencia respecto del idioma.</dd></div>
-              <div><dt>Interpretación</dt><dd>Coherencia <code>c_v</code>, diversidad, traslape Jaccard de palabras clave y estabilidad por semillas y submuestras.</dd></div>
-              <div><dt>Mapa</dt><dd><em>Trustworthiness</em> para revisar cuánto conservan UMAP 2D y 3D las vecindades originales.</dd></div>
-              <div><dt>Publicación</dt><dd>Los Parquet alimentan un extracto web que reconcilia identificadores, conteos y participaciones antes del build.</dd></div>
+              <div><dt>Parámetros</dt><dd><code>n_neighbors=30</code>, <code>min_dist=0.04</code>, métrica coseno y semilla <code>420</code>.</dd></div>
+              <div><dt>Proyecciones</dt><dd>Ajustes independientes de UMAP con 2 y 3 componentes sobre los mismos embeddings normalizados.</dd></div>
+              <div><dt>Calidad 2D</dt><dd><em>Trustworthiness</em> = {formatCoefficient(meta.umapTrustworthiness.twoD, 3)} para vecindades de 30 observaciones.</dd></div>
+              <div><dt>Calidad 3D</dt><dd><em>Trustworthiness</em> = {formatCoefficient(meta.umapTrustworthiness.threeD, 3)} bajo la misma especificación.</dd></div>
+              <div><dt>Lectura</dt><dd>Las distancias son aproximaciones locales; ejes, orientación y escala absoluta no tienen interpretación sustantiva.</dd></div>
             </dl>
           </section>
 
-          <div className="method-command" aria-label="Secuencia reproducible">
-            <span>Secuencia reproducible</span>
-            <code>make scrape</code>
-            <code>make clusters</code>
-            <code>make web-data</code>
-            <code>make web-check</code>
-          </div>
+          <section>
+            <span className="eyebrow">Validación y publicación</span>
+            <h3>Evaluación multcriterio y trazabilidad</h3>
+            <dl>
+              <div><dt>Estructura</dt><dd>Silhouette, Davies-Bouldin y Calinski-Harabasz; NMI frente a idioma, programa y nivel para detectar particiones dominadas por metadatos.</dd></div>
+              <div><dt>Interpretación</dt><dd>Coherencia <code>c_v</code>, diversidad temática, traslape Jaccard de keywords, balance de tamaños y tasa de outliers.</dd></div>
+              <div><dt>Robustez</dt><dd>Estabilidad entre semillas, bootstraps y submuestras; selección de alternativas no dominadas mediante frontera de Pareto.</dd></div>
+              <div><dt>Trazabilidad</dt><dd>Embeddings, asignaciones, diagnósticos, taxonomía y agregados se conservan en Parquet con identificadores de tesis.</dd></div>
+              <div><dt>Publicación</dt><dd>El extracto web reconcilia identificadores, totales y participaciones; después se ejecutan lint, build y pruebas E2E responsive.</dd></div>
+            </dl>
+          </section>
         </div>
       </details>
     </section>

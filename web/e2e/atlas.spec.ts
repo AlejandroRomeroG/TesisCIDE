@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test'
 import { PNG } from 'pngjs'
 
-async function expectCanvasHasContent(canvas: Locator, minimumChromaticSamples = 18) {
+async function expectCanvasHasContent(canvas: Locator, minimumChromaticSamples: number | null = 18) {
   await expect(canvas).toBeVisible()
   const image = PNG.sync.read(await canvas.screenshot())
   const colors = new Set<string>()
@@ -24,7 +24,9 @@ async function expectCanvasHasContent(canvas: Locator, minimumChromaticSamples =
 
   expect(opaqueSamples).toBeGreaterThan(200)
   expect(colors.size).toBeGreaterThan(18)
-  expect(chromaticSamples).toBeGreaterThan(minimumChromaticSamples)
+  if (minimumChromaticSamples !== null) {
+    expect(chromaticSamples).toBeGreaterThan(minimumChromaticSamples)
+  }
 }
 
 async function expectNoDocumentOverflow(page: Page) {
@@ -159,6 +161,10 @@ async function expectFilterTogglePreservesMap(page: Page, token: string) {
   const canvas = activeSemanticCanvas(page)
   const camera = await readCameraState(page)
   const closedScrollTop = await page.locator('.app-main').evaluate((element) => element.scrollTop)
+  const mapHint = page.locator('.preserved-view.is-active .map-mode-hint')
+  const timelineDock = page.locator('.preserved-view.is-active .timeline-dock')
+  const closedHintBounds = await mapHint.isVisible().then((visible) => visible ? mapHint.boundingBox() : null)
+  const closedDockBounds = await timelineDock.count() ? await timelineDock.boundingBox() : null
   const closedBounds = await activeSemanticMap(page).evaluate((element) => {
     const bounds = element.getBoundingClientRect()
     return { top: bounds.top, height: bounds.height }
@@ -184,13 +190,19 @@ async function expectFilterTogglePreservesMap(page: Page, token: string) {
   expect(layoutSamples[0].top).toBeGreaterThan(closedBounds.top)
   expect(Math.abs(layoutSamples[0].height - closedBounds.height)).toBeLessThanOrEqual(1)
   expect(await page.locator('.app-main').evaluate((element) => element.scrollTop)).toBe(closedScrollTop)
-  if ((page.viewportSize()?.width ?? 0) > 900) {
-    const hintBounds = await page.locator('.preserved-view.is-active .map-mode-hint').boundingBox()
-    const bodyBounds = await page.locator('.preserved-view.is-active .map-body').boundingBox()
+  if (closedHintBounds) {
+    const hintBounds = await mapHint.boundingBox()
     expect(hintBounds).not.toBeNull()
-    expect(bodyBounds).not.toBeNull()
-    expect(hintBounds!.y).toBeGreaterThanOrEqual(bodyBounds!.y)
-    expect(hintBounds!.y + hintBounds!.height).toBeLessThanOrEqual(bodyBounds!.y + bodyBounds!.height + 1)
+    expect(Math.abs(hintBounds!.y - closedHintBounds.y)).toBeLessThanOrEqual(1)
+  }
+  if (closedDockBounds) {
+    const dockBounds = await timelineDock.boundingBox()
+    const visibleBottom = (page.viewportSize()?.width ?? 0) <= 900
+      ? await page.locator('.side-navigation').evaluate((element) => element.getBoundingClientRect().top)
+      : await page.locator('.preserved-view.is-active .map-body').evaluate((element) => element.getBoundingClientRect().bottom)
+    expect(dockBounds).not.toBeNull()
+    expect(Math.abs(dockBounds!.y - closedDockBounds.y)).toBeLessThanOrEqual(1)
+    expect(dockBounds!.y + dockBounds!.height).toBeLessThanOrEqual(visibleBottom + 1)
   }
   await page.waitForTimeout(280)
   await expect(canvas).toHaveAttribute('data-filter-token', token)
@@ -239,6 +251,7 @@ test('desktop atlas renders every analytical surface and animation control', asy
 
   await expect(page.getByRole('heading', { name: 'Mapa semántico', exact: true })).toBeVisible()
   await expect(page.getByText('2,388').first()).toBeVisible()
+  await expect(page.getByText('Última actualización', { exact: true })).toBeVisible()
   const brandTypeSizes = await page.locator('.brand-mark').evaluate((element) => ({
     at: Number.parseFloat(getComputedStyle(element.querySelector('strong')!).fontSize),
     cide: Number.parseFloat(getComputedStyle(element.querySelector('small')!).fontSize),
@@ -277,6 +290,23 @@ test('desktop atlas renders every analytical surface and animation control', asy
   await saveScreenshot(page, testInfo, 'atlas-desktop-map.png')
   await expectFilterTogglePreservesMap(page, 'map-2d-filter')
 
+  await page.getByRole('button', { name: 'Filtros', exact: true }).click()
+  const levelFilter = page.getByLabel('Nivel')
+  const programFilter = page.getByLabel('Programa')
+  await programFilter.selectOption('Maestría en Economía')
+  await expect(levelFilter).toHaveValue('Maestría')
+  await expect(levelFilter).toBeDisabled()
+  await expect(activeSemanticMap(page)).toHaveAttribute('data-point-count', '315')
+  await programFilter.selectOption('')
+  await expect(levelFilter).toHaveValue('')
+  await expect(levelFilter).toBeEnabled()
+  await programFilter.selectOption('Maestría en Economía')
+  await page.getByRole('button', { name: 'Restablecer', exact: true }).click()
+  await expect(levelFilter).toHaveValue('')
+  await expect(programFilter).toHaveValue('')
+  await expect(levelFilter).toBeEnabled()
+  await page.getByRole('button', { name: 'Filtros', exact: true }).click()
+
   const search = page.getByRole('searchbox', { name: 'Buscar tesis, autor, asesor o tema' })
   await search.fill('pandemia')
   await expect(activeSemanticMap(page)).toHaveAttribute('data-point-count', '2388')
@@ -291,6 +321,8 @@ test('desktop atlas renders every analytical surface and animation control', asy
   await expect(activeSemanticMap(page)).toHaveAttribute('data-highlight-count', '1')
   await expect(activeMapReadout(page).locator('strong')).toHaveText('1')
   await search.fill('Romero, González Alejandro')
+  await expect(activeSemanticMap(page)).toHaveAttribute('data-highlight-count', '1')
+  await search.fill('Carlos Arturo')
   await expect(activeSemanticMap(page)).toHaveAttribute('data-highlight-count', '1')
   await page.getByRole('button', { name: 'Limpiar búsqueda' }).click()
   await expect(activeSemanticMap(page)).toHaveAttribute('data-highlight-count', '2388')
@@ -412,6 +444,8 @@ test('desktop atlas renders every analytical surface and animation control', asy
   await expectCanvasHasContent(page.locator('.topic-chart canvas').last())
   await expectPlotFitsViewport(page, '.topic-chart')
   await expectChartTooltipContained(page, '.topic-chart')
+  await expect(page.locator('.topic-selector')).toHaveCount(0)
+  await expect(page.locator('.topic-context h2')).toHaveText('Crimen, violencia y seguridad')
   await saveScreenshot(page, testInfo, 'atlas-desktop-topics.png')
 
   await page.getByRole('button', { name: 'Profesorado', exact: true }).click()
@@ -419,19 +453,30 @@ test('desktop atlas renders every analytical surface and animation control', asy
   await expectCanvasHasContent(page.locator('.faculty-chart canvas').last())
   await expectPlotFitsViewport(page, '.faculty-chart')
   await expectChartTooltipContained(page, '.faculty-chart')
+  const facultySearch = page.getByRole('searchbox', { name: 'Buscar profesora o profesor' })
+  await facultySearch.fill('Laura Helena')
+  await expect(page.locator('.faculty-view')).toHaveAttribute('data-point-count', '465')
+  await expect(page.locator('.faculty-view')).toHaveAttribute('data-match-count', '1')
+  await expect(page.locator('.chart-heading')).toContainText('1 coincidencia')
+  await expectCanvasHasContent(page.locator('.faculty-chart canvas').last(), null)
   await saveScreenshot(page, testInfo, 'atlas-desktop-faculty.png')
 
   await page.getByRole('button', { name: 'Método', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Cómo se construyó el atlas', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: '2,388 tesis conectadas por lo que dicen' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Una forma distinta de leer la producción del CIDE' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Seis pasos para llegar al Atlas desde el repositorio del CIDE' })).toBeVisible()
+  await expect(page.getByText('El proceso, sin jerga')).toHaveCount(0)
+  await expect(page.getByText('2,388 fichas, equivalentes al 100.0%, incluyen un abstract utilizable.')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Ver la fuente original' })).toHaveAttribute('href', 'https://repositorio-digital.cide.edu')
   const technicalDetails = page.locator('.method-technical')
   await expect(technicalDetails).not.toHaveAttribute('open', '')
   await saveScreenshot(page, testInfo, 'atlas-desktop-methodology.png')
-  await page.getByText('Ver ficha técnica y reproducibilidad').click()
+  await page.getByText('Ver ficha técnica ampliada').click()
   await expect(technicalDetails).toHaveAttribute('open', '')
-  await expect(page.getByRole('heading', { name: 'El agrupamiento no depende del dibujo' })).toBeVisible()
+  await expect(page.getByText('Para las personas más curiosas')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Las comunidades se calculan antes del mapa' })).toBeVisible()
+  await expect(page.getByText('Secuencia reproducible')).toHaveCount(0)
 })
 
 test('mobile atlas reflows without document overflow or control collisions', async ({ page }, testInfo) => {
@@ -452,6 +497,7 @@ test('mobile atlas reflows without document overflow or control collisions', asy
   await saveScreenshot(page, testInfo, 'atlas-mobile-map.png')
 
   await page.getByRole('button', { name: 'Tiempo', exact: true }).click()
+  await expectFilterTogglePreservesMap(page, 'mobile-time-filter')
   const dock = await page.locator('.timeline-dock').boundingBox()
   const timeStage = await activeMapStage(page).boundingBox()
   expect(dock).not.toBeNull()
@@ -501,7 +547,7 @@ test('mobile atlas reflows without document overflow or control collisions', asy
   await expect(page.getByRole('heading', { name: '2,388 tesis conectadas por lo que dicen' })).toBeVisible()
   await expectNoDocumentOverflow(page)
   await saveScreenshot(page, testInfo, 'atlas-mobile-methodology.png')
-  await page.getByText('Ver ficha técnica y reproducibilidad').click()
+  await page.getByText('Ver ficha técnica ampliada').click()
   await expect(page.locator('.method-technical')).toHaveAttribute('open', '')
   await expectNoDocumentOverflow(page)
 })
@@ -532,7 +578,7 @@ test('small portrait and landscape plots stay inside the visible frame', async (
     await page.getByRole('button', { name: 'Método', exact: true }).click()
     await expect(page.getByRole('heading', { name: '2,388 tesis conectadas por lo que dicen' })).toBeVisible()
     await expectNoDocumentOverflow(page)
-    await page.getByText('Ver ficha técnica y reproducibilidad').click()
+    await page.getByText('Ver ficha técnica ampliada').click()
     await expect(page.locator('.method-technical')).toHaveAttribute('open', '')
     await expectNoDocumentOverflow(page)
   }

@@ -135,10 +135,16 @@ export interface AtlasMeta {
   programCount: number
   advisorCount: number
   clusterCount: number
+  abstractCount: number
   yearMin: number
   yearMax: number
   embeddingModel: string
+  embeddingDimension: number
   clusterAlgorithm: string
+  umapTrustworthiness: {
+    twoD: number
+    threeD: number
+  }
   levelCounts: Record<string, number>
   languageCounts: Record<string, number>
   yearTotals: Record<string, number>

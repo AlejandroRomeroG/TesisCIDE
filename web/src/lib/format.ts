@@ -50,8 +50,14 @@ export function searchTerms(value: string): string[] {
 }
 
 export function includesAllSearchTerms(value: string, terms: readonly string[]): boolean {
-  const normalized = normalizeSearch(value)
-  return terms.every((term) => normalized.includes(term))
+  const valueTerms = searchTerms(value)
+  return terms.every((term) => valueTerms.some((valueTerm) => valueTerm.startsWith(term)))
+}
+
+export function includesAllSearchTermsInAnyValue(value: string, terms: readonly string[]): boolean {
+  return value
+    .split(/\s*\|\s*/)
+    .some((part) => includesAllSearchTerms(part, terms))
 }
 
 export function shortProgram(value: string): string {

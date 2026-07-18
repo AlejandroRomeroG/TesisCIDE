@@ -18,7 +18,13 @@ import type {
   ThesisPoint,
 } from '../types'
 import { clusterColor } from '../lib/colors'
-import { formatNumber, includesAllSearchTerms, languageLabel, searchTerms } from '../lib/format'
+import {
+  formatNumber,
+  includesAllSearchTerms,
+  includesAllSearchTermsInAnyValue,
+  languageLabel,
+  searchTerms,
+} from '../lib/format'
 
 interface AtlasMapViewProps {
   points: ThesisPoint[]
@@ -65,6 +71,10 @@ export function AtlasMapView({
     () => [...new Set(points.map((point) => point.degreeProgram))].sort((a, b) => a.localeCompare(b, 'es')),
     [points],
   )
+  const programLevels = useMemo(
+    () => new Map(points.map((point) => [point.degreeProgram, point.level])),
+    [points],
+  )
   const timelineYears = useMemo(
     () => Object.entries(analytics.meta.yearTotals)
       .filter(([, count]) => count > 0)
@@ -86,21 +96,23 @@ export function AtlasMapView({
     if (queryTerms.length === 0) return null
     return new Set(
       structuralPoints
-        .filter((point) => [
-          point.id,
-          point.title,
-          point.author,
-          point.advisor ?? '',
-          point.level,
-          point.program,
-          point.degreeProgram,
-          point.clusterTheme,
-          point.subtopic,
-          point.secondarySubtopic,
-          point.taxonomy,
-          languageLabel(point.language),
-          String(point.year),
-        ].some((value) => includesAllSearchTerms(value, queryTerms)))
+        .filter((point) => (
+          includesAllSearchTermsInAnyValue(point.author, queryTerms)
+          || includesAllSearchTermsInAnyValue(point.advisor ?? '', queryTerms)
+          || [
+            point.id,
+            point.title,
+            point.level,
+            point.program,
+            point.degreeProgram,
+            point.clusterTheme,
+            point.subtopic,
+            point.secondarySubtopic,
+            point.taxonomy,
+            languageLabel(point.language),
+            String(point.year),
+          ].some((value) => includesAllSearchTerms(value, queryTerms))
+        ))
         .map((point) => point.id),
     )
   }, [queryTerms, structuralPoints])
@@ -154,7 +166,8 @@ export function AtlasMapView({
   const previousTimelineYear = yearIndex > 0 ? timelineYears[yearIndex - 1] : year
   const currentYearGap = year - previousTimelineYear
 
-  const activeFilterCount = [filters.level, filters.program, filters.clusterId].filter((value) => value !== '' && value !== null).length
+  const activeFilterCount = [filters.program || filters.level, filters.clusterId]
+    .filter((value) => value !== '' && value !== null).length
 
   useEffect(() => {
     if (!playing || !timelineMode) return
@@ -197,6 +210,14 @@ export function AtlasMapView({
 
   function updateFilter<Key extends keyof AtlasFilters>(key: Key, value: AtlasFilters[Key]) {
     onFiltersChange({ ...filters, [key]: value })
+  }
+
+  function updateProgram(program: string) {
+    onFiltersChange({
+      ...filters,
+      program,
+      level: program ? programLevels.get(program) ?? '' : '',
+    })
   }
 
   function togglePlayback() {
@@ -264,14 +285,18 @@ export function AtlasMapView({
             >
               <label>
                 <span>Nivel</span>
-                <select value={filters.level} onChange={(event) => updateFilter('level', event.target.value)}>
+                <select
+                  value={filters.level}
+                  disabled={Boolean(filters.program)}
+                  onChange={(event) => updateFilter('level', event.target.value)}
+                >
                   <option value="">Todos los niveles</option>
                   {levels.map((level) => <option key={level}>{level}</option>)}
                 </select>
               </label>
               <label>
                 <span>Programa</span>
-                <select value={filters.program} onChange={(event) => updateFilter('program', event.target.value)}>
+                <select value={filters.program} onChange={(event) => updateProgram(event.target.value)}>
                   <option value="">Todos los programas</option>
                   {programs.map((program) => <option key={program}>{program}</option>)}
                 </select>

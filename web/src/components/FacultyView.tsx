@@ -11,7 +11,7 @@ interface FacultyViewProps {
 }
 
 interface AdvisorClick {
-  value?: [number, number, number, string, number, string]
+  value?: [number, number, number, string, number, string, number]
 }
 
 export function FacultyView({ analytics }: FacultyViewProps) {
@@ -19,11 +19,15 @@ export function FacultyView({ analytics }: FacultyViewProps) {
   const [selectedName, setSelectedName] = useState(analytics.advisors[0]?.name ?? '')
   const queryTerms = useMemo(() => searchTerms(query), [query])
 
-  const visibleAdvisors = useMemo(
+  const matchingAdvisors = useMemo(
     () => queryTerms.length > 0
       ? analytics.advisors.filter((advisor) => includesAllSearchTerms(advisor.name, queryTerms))
       : analytics.advisors,
     [analytics.advisors, queryTerms],
+  )
+  const matchingNames = useMemo(
+    () => queryTerms.length > 0 ? new Set(matchingAdvisors.map((advisor) => advisor.name)) : null,
+    [matchingAdvisors, queryTerms.length],
   )
   const selected = analytics.advisors.find((advisor) => advisor.name === selectedName) ?? analytics.advisors[0]
 
@@ -36,7 +40,7 @@ export function FacultyView({ analytics }: FacultyViewProps) {
 
   const option = useMemo<ResponsiveChartOption>(() => ({ compact }) => {
     const byCluster = new Map<number, AdvisorSummary[]>()
-    for (const advisor of visibleAdvisors) {
+    for (const advisor of analytics.advisors) {
       const rows = byCluster.get(advisor.mainClusterId) ?? []
       rows.push(advisor)
       byCluster.set(advisor.mainClusterId, rows)
@@ -91,15 +95,27 @@ export function FacultyView({ analytics }: FacultyViewProps) {
       series: [...byCluster.entries()].map(([clusterId, advisors]) => ({
         name: analytics.clusters.find((cluster) => cluster.id === clusterId)?.theme ?? `Cluster ${clusterId}`,
         type: 'scatter',
-        data: advisors.map((advisor) => [
-          advisor.thesisCount,
-          advisor.clusterCount,
-          advisor.programCount,
-          advisor.name,
-          advisor.mainClusterId,
-          advisor.mainCluster,
-        ]),
-        symbolSize: (value: [number, number, number]) => {
+        data: advisors.map((advisor) => {
+          const matches = matchingNames === null || matchingNames.has(advisor.name)
+          return {
+            value: [
+              advisor.thesisCount,
+              advisor.clusterCount,
+              advisor.programCount,
+              advisor.name,
+              advisor.mainClusterId,
+              advisor.mainCluster,
+              matches ? 1 : 0,
+            ],
+            itemStyle: matches ? undefined : {
+              color: '#9ca59f',
+              borderColor: '#e7eae5',
+              borderWidth: 1,
+              opacity: 0.2,
+            },
+          }
+        }),
+        symbolSize: (value: [number, number, number, string, number, string, number]) => {
           const size = 7 + Math.sqrt(value[0]) * 2.1 + value[2] * 0.65
           return compact ? Math.max(5, size * 0.72) : size
         },
@@ -119,13 +135,13 @@ export function FacultyView({ analytics }: FacultyViewProps) {
           fontSize: compact ? 8 : 10,
           formatter: (params: unknown) => {
             const value = (params as AdvisorClick).value
-            return value && value[0] >= (compact ? 52 : 37) ? value[3] : ''
+            return value && value[6] === 1 && value[0] >= (compact ? 52 : 37) ? value[3] : ''
           },
         },
         labelLayout: { hideOverlap: true, moveOverlap: 'shiftY' },
       })),
     }
-  }, [analytics.clusters, visibleAdvisors])
+  }, [analytics.advisors, analytics.clusters, matchingNames])
 
   function handleClick(params: unknown) {
     const value = (params as AdvisorClick).value
@@ -133,7 +149,12 @@ export function FacultyView({ analytics }: FacultyViewProps) {
   }
 
   return (
-    <section className="analysis-view faculty-view">
+    <section
+      className="analysis-view faculty-view"
+      data-point-count={analytics.advisors.length}
+      data-match-count={matchingAdvisors.length}
+      data-search-active={queryTerms.length > 0 || undefined}
+    >
       <div className="analysis-toolbar faculty-toolbar">
         <div>
           <span className="eyebrow">465 nombres homologados</span>
@@ -158,19 +179,27 @@ export function FacultyView({ analytics }: FacultyViewProps) {
               <h3>Volumen y amplitud temática</h3>
               <p>Cada punto es una persona; el tamaño incorpora también el número de programas.</p>
             </div>
-            <span>{formatNumber(visibleAdvisors.length)} visibles</span>
+            <span>
+              {queryTerms.length > 0
+                ? `${formatNumber(matchingAdvisors.length)} ${matchingAdvisors.length === 1 ? 'coincidencia' : 'coincidencias'}`
+                : `${formatNumber(analytics.advisors.length)} visibles`}
+            </span>
           </div>
-          {visibleAdvisors.length > 0 ? (
-            <EChart option={option} className="faculty-chart" ariaLabel="Dispersión de profesorado por tesis y temas" onClick={handleClick} />
-          ) : (
-            <div className="empty-search">
+          <EChart
+            option={option}
+            className="faculty-chart"
+            ariaLabel={`Dispersión de ${formatNumber(analytics.advisors.length)} personas por tesis y temas`}
+            onClick={handleClick}
+          />
+          {queryTerms.length > 0 && matchingAdvisors.length === 0 && (
+            <div className="empty-search faculty-empty-search">
               <Users size={26} aria-hidden="true" />
               No hay coincidencias para “{query}”.
             </div>
           )}
-          {queryTerms.length > 0 && visibleAdvisors.length > 0 && (
+          {queryTerms.length > 0 && matchingAdvisors.length > 0 && (
             <div className="faculty-results" aria-label="Resultados de búsqueda">
-              {visibleAdvisors.slice(0, 8).map((advisor) => (
+              {matchingAdvisors.slice(0, 8).map((advisor) => (
                 <button key={advisor.name} type="button" onClick={() => setSelectedName(advisor.name)}>
                   <strong>{advisor.name}</strong>
                   <span>{advisor.thesisCount} tesis</span>
