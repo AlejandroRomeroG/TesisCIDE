@@ -164,6 +164,17 @@ async function expectFitProfile(
   )
 }
 
+async function expectedFacultyLabelNames(page: Page, minimumTheses = 25): Promise<string[]> {
+  return page.evaluate(async (minimum) => {
+    const response = await fetch('/data/analytics.json')
+    const payload = await response.json() as { advisors: Array<{ name: string; thesisCount: number }> }
+    return payload.advisors
+      .filter((advisor) => advisor.thesisCount >= minimum)
+      .map((advisor) => advisor.name)
+      .sort((a, b) => a.localeCompare(b, 'es'))
+  }, minimumTheses)
+}
+
 async function expectClusterVisibilityPreservesCamera(page: Page, token: string) {
   const canvas = activeSemanticCanvas(page)
   const initialCamera = await readCameraState(page)
@@ -594,11 +605,29 @@ test('desktop atlas renders every analytical surface and animation control', asy
   await expect(page.getByRole('heading', { name: 'Profesorado', exact: true })).toBeVisible()
   await expectCanvasHasContent(page.locator('.faculty-chart canvas').last())
   await expectPlotFitsViewport(page, '.faculty-chart')
+  const expectedFacultyLabels = await expectedFacultyLabelNames(page)
+  await expect(page.locator('.faculty-view')).toHaveAttribute('data-label-threshold', '25')
+  await expect(page.locator('.faculty-view')).toHaveAttribute('data-label-overlap', 'callout-columns')
+  await expect(page.locator('.faculty-view')).toHaveAttribute(
+    'data-default-label-count',
+    String(expectedFacultyLabels.length),
+  )
+  const accessibleFacultyLabels = page
+    .getByRole('list', { name: 'Nombres mostrados en la gráfica' })
+    .getByRole('listitem')
+  await expect(accessibleFacultyLabels).toHaveCount(expectedFacultyLabels.length)
+  expect((await accessibleFacultyLabels.allTextContents()).sort((a, b) => a.localeCompare(b, 'es')))
+    .toEqual(expectedFacultyLabels)
+  await page.locator('.chart-heading').hover()
+  await saveScreenshot(page, testInfo, 'atlas-desktop-faculty-labels.png')
   await expectChartTooltipContained(page, '.faculty-chart')
   const facultySearch = page.getByRole('searchbox', { name: 'Buscar profesora o profesor' })
   await facultySearch.fill('Laura Helena')
   await expect(page.locator('.faculty-view')).toHaveAttribute('data-point-count', '465')
   await expect(page.locator('.faculty-view')).toHaveAttribute('data-match-count', '1')
+  await expect(page.locator('.faculty-view')).toHaveAttribute('data-visible-label-count', '1')
+  await expect(accessibleFacultyLabels).toHaveCount(1)
+  await expect(accessibleFacultyLabels.first()).toHaveText('Laura Helena Atuesta Becerra')
   await expect(page.locator('.chart-heading')).toContainText('1 coincidencia')
   await expectCanvasHasContent(page.locator('.faculty-chart canvas').last(), null)
   await saveScreenshot(page, testInfo, 'atlas-desktop-faculty.png')
@@ -751,8 +780,15 @@ test('mobile atlas reflows without document overflow or control collisions', asy
   await page.getByRole('button', { name: 'Profesorado', exact: true }).click()
   await expectCanvasHasContent(page.locator('.faculty-chart canvas').last())
   await expectPlotFitsViewport(page, '.faculty-chart')
-  await expectChartTooltipContained(page, '.faculty-chart')
+  const expectedMobileFacultyLabels = await expectedFacultyLabelNames(page)
+  await expect(page.locator('.faculty-view')).toHaveAttribute('data-label-threshold', '25')
+  await expect(page.locator('.faculty-view')).toHaveAttribute(
+    'data-visible-label-count',
+    String(expectedMobileFacultyLabels.length),
+  )
+  await page.locator('.chart-heading').hover()
   await saveScreenshot(page, testInfo, 'atlas-mobile-faculty.png')
+  await expectChartTooltipContained(page, '.faculty-chart')
 
   await page.getByRole('button', { name: 'Programas', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Programas', exact: true })).toBeVisible()

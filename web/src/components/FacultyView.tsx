@@ -14,6 +14,8 @@ interface AdvisorClick {
   value?: [number, number, number, string, number, string, number]
 }
 
+const FACULTY_LABEL_MIN_THESES = 25
+
 export function FacultyView({ analytics }: FacultyViewProps) {
   const [query, setQuery] = useState('')
   const [selectedName, setSelectedName] = useState(analytics.advisors[0]?.name ?? '')
@@ -29,6 +31,11 @@ export function FacultyView({ analytics }: FacultyViewProps) {
     () => queryTerms.length > 0 ? new Set(matchingAdvisors.map((advisor) => advisor.name)) : null,
     [matchingAdvisors, queryTerms.length],
   )
+  const defaultLabeledAdvisors = useMemo(
+    () => analytics.advisors.filter((advisor) => advisor.thesisCount >= FACULTY_LABEL_MIN_THESES),
+    [analytics.advisors],
+  )
+  const visibleLabelAdvisors = queryTerms.length > 0 ? matchingAdvisors : defaultLabeledAdvisors
   const selected = analytics.advisors.find((advisor) => advisor.name === selectedName) ?? analytics.advisors[0]
 
   const topics = useMemo(
@@ -44,6 +51,126 @@ export function FacultyView({ analytics }: FacultyViewProps) {
       const rows = byCluster.get(advisor.mainClusterId) ?? []
       rows.push(advisor)
       byCluster.set(advisor.mainClusterId, rows)
+    }
+    const maximumTheses = Math.max(...analytics.advisors.map((advisor) => advisor.thesisCount))
+    const xAxisMaximum = Math.ceil(maximumTheses * 1.12 + 2)
+    const directLabels = visibleLabelAdvisors.length <= 3
+    const labelPlacements = directLabels
+      ? visibleLabelAdvisors.map((advisor) => ({
+          advisor,
+          x: advisor.thesisCount,
+          y: advisor.clusterCount,
+          position: advisor.thesisCount > xAxisMaximum * 0.72 ? 'left' as const : 'right' as const,
+          connector: false,
+        }))
+      : [
+          {
+            position: 'left' as const,
+            x: xAxisMaximum * 0.41,
+            rows: [...visibleLabelAdvisors]
+              .sort((a, b) => a.thesisCount - b.thesisCount || a.name.localeCompare(b.name, 'es'))
+              .slice(0, Math.ceil(visibleLabelAdvisors.length / 2)),
+          },
+          {
+            position: 'right' as const,
+            x: xAxisMaximum * 0.59,
+            rows: [...visibleLabelAdvisors]
+              .sort((a, b) => a.thesisCount - b.thesisCount || a.name.localeCompare(b.name, 'es'))
+              .slice(Math.ceil(visibleLabelAdvisors.length / 2)),
+          },
+        ].flatMap(({ position, x, rows }) => rows
+          .sort((a, b) => b.clusterCount - a.clusterCount || b.thesisCount - a.thesisCount)
+          .map((advisor, index) => ({
+            advisor,
+            x,
+            y: rows.length === 1 ? advisor.clusterCount : 15.8 - index * (15 / (rows.length - 1)),
+            position,
+            connector: true,
+          })))
+    const pointSeries = [...byCluster.entries()].map(([clusterId, advisors]) => ({
+      name: analytics.clusters.find((cluster) => cluster.id === clusterId)?.theme ?? `Cluster ${clusterId}`,
+      type: 'scatter',
+      data: advisors.map((advisor) => {
+        const matches = matchingNames === null || matchingNames.has(advisor.name)
+        return {
+          value: [
+            advisor.thesisCount,
+            advisor.clusterCount,
+            advisor.programCount,
+            advisor.name,
+            advisor.mainClusterId,
+            advisor.mainCluster,
+            matches ? 1 : 0,
+          ],
+          itemStyle: matches ? undefined : {
+            color: '#9ca59f',
+            borderColor: '#e7eae5',
+            borderWidth: 1,
+            opacity: 0.2,
+          },
+        }
+      }),
+      symbolSize: (value: [number, number, number, string, number, string, number]) => {
+        const size = 7 + Math.sqrt(value[0]) * 2.1 + value[2] * 0.65
+        return compact ? Math.max(5, size * 0.72) : size
+      },
+      itemStyle: {
+        color: clusterColor(clusterId),
+        borderColor: '#f7f8f4',
+        borderWidth: 1,
+        opacity: 0.78,
+      },
+      emphasis: { focus: 'series', scale: 1.18, itemStyle: { opacity: 1, borderColor: '#111815', borderWidth: 2 } },
+    }))
+    const labelSeries = {
+      name: 'Nombres',
+      type: 'scatter',
+      silent: true,
+      z: 20,
+      symbolSize: 1,
+      itemStyle: {
+        color: 'rgba(0, 0, 0, 0)',
+        borderColor: 'rgba(0, 0, 0, 0)',
+      },
+      tooltip: { show: false },
+      data: labelPlacements.map(({ advisor, x, y, position }) => ({
+        value: [
+          x,
+          y,
+          advisor.programCount,
+          advisor.name,
+          advisor.mainClusterId,
+          advisor.mainCluster,
+          1,
+        ],
+        label: { position },
+      })),
+      label: {
+        show: true,
+        distance: compact ? 5 : 7,
+        color: '#25302a',
+        fontFamily: 'Manrope Variable',
+        fontSize: compact ? 8 : 10,
+        lineHeight: compact ? 11 : 14,
+        backgroundColor: 'rgba(247, 248, 244, 0.9)',
+        borderRadius: 2,
+        padding: compact ? [1, 2] : [2, 3],
+        formatter: (params: unknown) => (params as AdvisorClick).value?.[3] ?? '',
+      },
+      markLine: {
+        silent: true,
+        animation: false,
+        symbol: ['none', 'none'],
+        label: { show: false },
+        lineStyle: { color: '#7c8881', width: 1, opacity: 0.36 },
+        data: labelPlacements
+          .filter(({ connector }) => connector)
+          .map(({ advisor, x, y }) => [
+            { coord: [advisor.thesisCount, advisor.clusterCount] },
+            { coord: [x, y] },
+          ]),
+      },
+      labelLayout: { hideOverlap: false },
     }
     return {
       animationDuration: 520,
@@ -68,7 +195,7 @@ export function FacultyView({ analytics }: FacultyViewProps) {
       xAxis: {
         type: 'value',
         min: -0.5,
-        max: (value: { max: number }) => Math.ceil(value.max * 1.12 + 2),
+        max: xAxisMaximum,
         name: 'Tesis asesoradas',
         nameLocation: 'middle',
         nameGap: compact ? 28 : 40,
@@ -92,56 +219,9 @@ export function FacultyView({ analytics }: FacultyViewProps) {
         nameTextStyle: { color: '#66716b', fontFamily: 'Manrope Variable', fontSize: compact ? 9 : 12 },
         splitLine: { lineStyle: { color: '#e2e5df' } },
       },
-      series: [...byCluster.entries()].map(([clusterId, advisors]) => ({
-        name: analytics.clusters.find((cluster) => cluster.id === clusterId)?.theme ?? `Cluster ${clusterId}`,
-        type: 'scatter',
-        data: advisors.map((advisor) => {
-          const matches = matchingNames === null || matchingNames.has(advisor.name)
-          return {
-            value: [
-              advisor.thesisCount,
-              advisor.clusterCount,
-              advisor.programCount,
-              advisor.name,
-              advisor.mainClusterId,
-              advisor.mainCluster,
-              matches ? 1 : 0,
-            ],
-            itemStyle: matches ? undefined : {
-              color: '#9ca59f',
-              borderColor: '#e7eae5',
-              borderWidth: 1,
-              opacity: 0.2,
-            },
-          }
-        }),
-        symbolSize: (value: [number, number, number, string, number, string, number]) => {
-          const size = 7 + Math.sqrt(value[0]) * 2.1 + value[2] * 0.65
-          return compact ? Math.max(5, size * 0.72) : size
-        },
-        itemStyle: {
-          color: clusterColor(clusterId),
-          borderColor: '#f7f8f4',
-          borderWidth: 1,
-          opacity: 0.78,
-        },
-        emphasis: { focus: 'series', scale: 1.18, itemStyle: { opacity: 1, borderColor: '#111815', borderWidth: 2 } },
-        label: {
-          show: true,
-          position: 'right',
-          distance: 6,
-          color: '#25302a',
-          fontFamily: 'Manrope Variable',
-          fontSize: compact ? 8 : 10,
-          formatter: (params: unknown) => {
-            const value = (params as AdvisorClick).value
-            return value && value[6] === 1 && value[0] >= (compact ? 52 : 37) ? value[3] : ''
-          },
-        },
-        labelLayout: { hideOverlap: true, moveOverlap: 'shiftY' },
-      })),
+      series: [...pointSeries, labelSeries],
     }
-  }, [analytics.advisors, analytics.clusters, matchingNames])
+  }, [analytics.advisors, analytics.clusters, matchingNames, visibleLabelAdvisors])
 
   function handleClick(params: unknown) {
     const value = (params as AdvisorClick).value
@@ -154,6 +234,10 @@ export function FacultyView({ analytics }: FacultyViewProps) {
       data-point-count={analytics.advisors.length}
       data-match-count={matchingAdvisors.length}
       data-search-active={queryTerms.length > 0 || undefined}
+      data-label-threshold={FACULTY_LABEL_MIN_THESES}
+      data-default-label-count={defaultLabeledAdvisors.length}
+      data-visible-label-count={visibleLabelAdvisors.length}
+      data-label-overlap="callout-columns"
     >
       <div className="analysis-toolbar faculty-toolbar">
         <div>
@@ -177,7 +261,7 @@ export function FacultyView({ analytics }: FacultyViewProps) {
           <div className="chart-heading">
             <div>
               <h3>Volumen y amplitud temática</h3>
-              <p>Cada punto es una persona; el tamaño incorpora también el número de programas.</p>
+              <p>Cada punto es una persona; el tamaño incorpora también el número de programas. Se muestran nombres a partir de 25 tesis.</p>
             </div>
             <span>
               {queryTerms.length > 0
@@ -191,6 +275,9 @@ export function FacultyView({ analytics }: FacultyViewProps) {
             ariaLabel={`Dispersión de ${formatNumber(analytics.advisors.length)} personas por tesis y temas`}
             onClick={handleClick}
           />
+          <ul className="sr-only" aria-label="Nombres mostrados en la gráfica">
+            {visibleLabelAdvisors.map((advisor) => <li key={advisor.name}>{advisor.name}</li>)}
+          </ul>
           {queryTerms.length > 0 && matchingAdvisors.length === 0 && (
             <div className="empty-search faculty-empty-search">
               <Users size={26} aria-hidden="true" />
