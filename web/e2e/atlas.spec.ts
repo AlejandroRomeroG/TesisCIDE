@@ -491,6 +491,19 @@ test('desktop atlas renders every analytical surface and animation control', asy
 
   await page.getByRole('button', { name: 'Tiempo', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'El mapa a través del tiempo' })).toBeVisible()
+  const timelineRanking = page.locator('.timeline-rank li')
+  await expect(timelineRanking).toHaveCount(20)
+  await expect(timelineRanking.first()).toContainText('#01')
+  await expect(timelineRanking.last()).toContainText('#20')
+  const timelineRankingScroll = await page.locator('.timeline-rank').evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  }))
+  expect(timelineRankingScroll.scrollHeight).toBeGreaterThan(timelineRankingScroll.clientHeight)
+  const rankedCounts = await timelineRanking.locator('.rank-copy small').allTextContents()
+  const accumulatedCounts = rankedCounts.map((label) => Number(label.split('·')[1].replace(/\D/g, '')))
+  expect(accumulatedCounts).toEqual([...accumulatedCounts].sort((a, b) => b - a))
+  await saveScreenshot(page, testInfo, 'atlas-desktop-time-ranking.png')
   await expectFitProfile(page, {
     viewport: 'desktop',
     context: 'timeline',

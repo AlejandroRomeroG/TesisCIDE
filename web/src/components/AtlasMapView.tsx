@@ -157,11 +157,10 @@ export function AtlasMapView({
       if (point.year > year) continue
       clusterCountsAtYear.set(point.clusterId, (clusterCountsAtYear.get(point.clusterId) ?? 0) + 1)
     }
-    const topClusters = analytics.clusters
+    const rankedClusters = analytics.clusters
       .map((cluster) => ({ cluster, count: clusterCountsAtYear.get(cluster.id) ?? 0 }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5)
-    return { newThisYear, accumulated, topClusters }
+      .sort((a, b) => b.count - a.count || a.cluster.id - b.cluster.id)
+    return { newThisYear, accumulated, rankedClusters }
   }, [analytics.clusters, filteredPoints, year])
 
   const yearIndex = Math.max(0, timelineYears.indexOf(year))
@@ -463,13 +462,20 @@ export function AtlasMapView({
               <motion.div key="timeline-context" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
                 <span className="eyebrow">Pulso temático · {year}</span>
                 <h2>Cómo se expande el mapa</h2>
-                <p className="context-intro">La posición de cada tesis permanece fija; el tiempo revela cuándo se incorporó al paisaje.</p>
+                <p className="context-intro">La posición de cada tesis permanece fija; el tiempo revela cuándo se incorporó al paisaje. Los 20 temas se ordenan por tesis acumuladas.</p>
                 <ol className="rank-list timeline-rank">
-                  {yearStats.topClusters.map(({ cluster, count }) => (
+                  {yearStats.rankedClusters.map(({ cluster, count }, index) => (
                     <li key={cluster.id}>
-                      <button type="button" onClick={() => updateFilter('clusterId', cluster.id)}>
+                      <button
+                        type="button"
+                        disabled={count === 0}
+                        onClick={() => updateFilter('clusterId', cluster.id)}
+                      >
                         <span className="rank-index" style={{ backgroundColor: clusterColor(cluster.id) }}>{String(cluster.id).padStart(2, '0')}</span>
-                        <span className="rank-copy"><strong>{cluster.theme}</strong><small>{formatNumber(count)} acumuladas</small></span>
+                        <span className="rank-copy">
+                          <strong>{cluster.theme}</strong>
+                          <small>#{String(index + 1).padStart(2, '0')} · {formatNumber(count)} acumuladas</small>
+                        </span>
                         <ChevronRight size={16} aria-hidden="true" />
                       </button>
                     </li>

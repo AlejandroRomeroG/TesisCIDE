@@ -1060,9 +1060,12 @@
   font-size: 0.55rem;
 }
 
-.cluster-index-list {
+.cluster-index-list,
+.timeline-rank {
   max-height: calc(100vh - 320px);
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 /* Analytical views */
