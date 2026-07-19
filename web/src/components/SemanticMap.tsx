@@ -44,7 +44,9 @@ const ROTATION_ORBIT = -32
 const ROTATION_X = 27
 const MOBILE_BREAKPOINT = 640
 const MOBILE_ZOOM_SCALE = 1.5
+const MOBILE_TIMELINE_3D_ADDITIONAL_ZOOM_SCALE = 1.5
 const DESKTOP_3D_ZOOM_SCALE = 1.75
+const DESKTOP_3D_VERTICAL_POSITION_SCALE = 1.1
 const MOBILE_TIMELINE_VERTICAL_SHIFT_SCALE = 1.5
 const COMMUNITY_Z_OFFSET = 0.16
 const COMMUNITY_RING_RADIUS = 0.205
@@ -102,6 +104,7 @@ interface FitViewResult {
   }
   zoomScale: number
   verticalOffset: number
+  verticalPositionScale: number
 }
 
 function isClusterSummary(object: MapObject): object is ClusterSummary {
@@ -275,14 +278,21 @@ function fitView(bounds: MapBounds, size: MapSize, mode: MapMode, timelineVisibl
 
   const compact = size.width < MOBILE_BREAKPOINT
   const requestedZoomScale = compact
-    ? timelineVisible || mode === '3d' ? MOBILE_ZOOM_SCALE : 1
+    ? timelineVisible && mode === '3d'
+      ? MOBILE_ZOOM_SCALE * MOBILE_TIMELINE_3D_ADDITIONAL_ZOOM_SCALE
+      : timelineVisible || mode === '3d' ? MOBILE_ZOOM_SCALE : 1
     : mode === '3d' ? DESKTOP_3D_ZOOM_SCALE : 1
   const baseZoom = Math.max(-1, Math.min(9.2, low - 0.08))
   const zoom = Math.max(-1, Math.min(9.2, baseZoom + Math.log2(requestedZoomScale)))
   const zoomScale = 2 ** (zoom - baseZoom)
+  const verticalPositionScale = compact && timelineVisible
+    ? MOBILE_TIMELINE_VERTICAL_SHIFT_SCALE
+    : !compact && mode === '3d' ? DESKTOP_3D_VERTICAL_POSITION_SCALE : 1
   const verticalOffset = compact && timelineVisible
-    ? Math.max(0, (padding.bottom - padding.top) / 2) * MOBILE_TIMELINE_VERTICAL_SHIFT_SCALE
-    : 0
+    ? Math.max(0, (padding.bottom - padding.top) / 2) * verticalPositionScale
+    : !compact && mode === '3d'
+      ? height * (verticalPositionScale - 1) / (2 * verticalPositionScale)
+      : 0
   let target = baseTarget
 
   if (verticalOffset > 0) {
@@ -312,6 +322,7 @@ function fitView(bounds: MapBounds, size: MapSize, mode: MapMode, timelineVisibl
     state: { target, zoom, minZoom: Math.max(-2, zoom - 2.5), maxZoom: 10 },
     zoomScale,
     verticalOffset,
+    verticalPositionScale,
   } satisfies FitViewResult
 }
 
@@ -677,6 +688,7 @@ export function SemanticMap({
       data-fit-rotation-x={mode === '3d' ? ROTATION_X.toFixed(4) : undefined}
       data-fit-zoom-scale={fitResult.zoomScale.toFixed(3)}
       data-fit-vertical-offset={fitResult.verticalOffset.toFixed(1)}
+      data-fit-vertical-position-scale={fitResult.verticalPositionScale.toFixed(3)}
       data-fit-viewport={viewportClass}
       data-fit-context={timelineVisible ? 'timeline' : 'map'}
       data-camera-zoom={cameraViewState.zoom?.toFixed(4)}

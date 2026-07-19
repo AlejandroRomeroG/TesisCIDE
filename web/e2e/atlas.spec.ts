@@ -146,12 +146,22 @@ async function readFitCameraState(page: Page): Promise<CameraState> {
 
 async function expectFitProfile(
   page: Page,
-  profile: { viewport: 'mobile' | 'desktop'; context: 'map' | 'timeline'; zoomScale: string; verticalOffset: string },
+  profile: {
+    viewport: 'mobile' | 'desktop'
+    context: 'map' | 'timeline'
+    zoomScale: string
+    verticalOffset: string | RegExp
+    verticalPositionScale: string
+  },
 ) {
   await expect(activeSemanticMap(page)).toHaveAttribute('data-fit-viewport', profile.viewport)
   await expect(activeSemanticMap(page)).toHaveAttribute('data-fit-context', profile.context)
   await expect(activeSemanticMap(page)).toHaveAttribute('data-fit-zoom-scale', profile.zoomScale)
   await expect(activeSemanticMap(page)).toHaveAttribute('data-fit-vertical-offset', profile.verticalOffset)
+  await expect(activeSemanticMap(page)).toHaveAttribute(
+    'data-fit-vertical-position-scale',
+    profile.verticalPositionScale,
+  )
 }
 
 async function expectClusterVisibilityPreservesCamera(page: Page, token: string) {
@@ -414,7 +424,11 @@ test('desktop atlas renders every analytical surface and animation control', asy
   await page.getByRole('button', { name: '3D', exact: true }).click()
   await expect(activeSemanticMap(page)).toHaveAttribute('data-thesis-sphere-scale', '0.048')
   await expectFitProfile(page, {
-    viewport: 'desktop', context: 'map', zoomScale: '1.750', verticalOffset: '0.0',
+    viewport: 'desktop',
+    context: 'map',
+    zoomScale: '1.750',
+    verticalOffset: /^[1-9]\d*\.\d$/,
+    verticalPositionScale: '1.100',
   })
   const rotateCamera = page.getByRole('button', { name: 'Girar cámara' })
   const moveCamera = page.getByRole('button', { name: 'Mover cámara' })
@@ -478,7 +492,11 @@ test('desktop atlas renders every analytical surface and animation control', asy
   await page.getByRole('button', { name: 'Tiempo', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'El mapa a través del tiempo' })).toBeVisible()
   await expectFitProfile(page, {
-    viewport: 'desktop', context: 'timeline', zoomScale: '1.750', verticalOffset: '0.0',
+    viewport: 'desktop',
+    context: 'timeline',
+    zoomScale: '1.750',
+    verticalOffset: /^[1-9]\d*\.\d$/,
+    verticalPositionScale: '1.100',
   })
   await expectFilterTogglePreservesMap(page, 'time-3d-filter')
   await expectClusterVisibilityPreservesCamera(page, 'time-3d-camera')
@@ -588,7 +606,11 @@ test('mobile atlas reflows without document overflow or control collisions', asy
 
   await page.getByRole('button', { name: '3D', exact: true }).click()
   await expectFitProfile(page, {
-    viewport: 'mobile', context: 'map', zoomScale: '1.500', verticalOffset: '0.0',
+    viewport: 'mobile',
+    context: 'map',
+    zoomScale: '1.500',
+    verticalOffset: '0.0',
+    verticalPositionScale: '1.000',
   })
   const mobileCameraModes = page.getByRole('group', { name: 'Interacción de cámara 3D' })
   const mobileReset = page.getByRole('button', { name: 'Volver a la vista inicial' })
@@ -635,7 +657,11 @@ test('mobile atlas reflows without document overflow or control collisions', asy
 
   await page.getByRole('button', { name: 'Tiempo', exact: true }).click()
   await expectFitProfile(page, {
-    viewport: 'mobile', context: 'timeline', zoomScale: '1.500', verticalOffset: '36.0',
+    viewport: 'mobile',
+    context: 'timeline',
+    zoomScale: '1.500',
+    verticalOffset: '36.0',
+    verticalPositionScale: '1.500',
   })
   await expectFilterTogglePreservesMap(page, 'mobile-time-filter')
   const dock = await page.locator('.timeline-dock').boundingBox()
@@ -652,7 +678,11 @@ test('mobile atlas reflows without document overflow or control collisions', asy
 
   await page.getByRole('button', { name: '3D', exact: true }).click()
   await expectFitProfile(page, {
-    viewport: 'mobile', context: 'timeline', zoomScale: '1.500', verticalOffset: '36.0',
+    viewport: 'mobile',
+    context: 'timeline',
+    zoomScale: '2.250',
+    verticalOffset: '36.0',
+    verticalPositionScale: '1.500',
   })
   const mobileTimeline3dCamera = await readFitCameraState(page)
   await activeSemanticCanvas(page).hover()
