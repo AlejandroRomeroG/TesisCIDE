@@ -816,6 +816,10 @@ test('mobile atlas reflows without document overflow or control collisions', asy
   await expect(page.locator('.programs-view')).toHaveAttribute('data-compact-grid-top', '14')
   await expect(page.locator('.programs-view')).toHaveAttribute('data-compact-grid-bottom', '64')
   await expect(page.locator('.programs-view')).toHaveAttribute('data-compact-grid-shared', 'true')
+  await expect(page.locator('.programs-view')).toHaveAttribute('data-compact-similarity-legend', 'external')
+  const mobileSimilarityLegend = page.getByRole('list', { name: 'Escala de similitud' })
+  await expect(mobileSimilarityLegend).toBeVisible()
+  await expect(mobileSimilarityLegend.getByRole('listitem')).toHaveCount(5)
   const mobileProgramXLabels = page.getByRole('list', { name: 'Programas del eje X' })
   await expect(mobileProgramXLabels).toBeVisible()
   const mobileProgramXItems = mobileProgramXLabels.getByRole('listitem')
@@ -829,6 +833,19 @@ test('mobile atlas reflows without document overflow or control collisions', asy
   const mobileProgramXGaps = mobileProgramXCenters.slice(1).map((center, index) => center - mobileProgramXCenters[index])
   expect(Math.min(...mobileProgramXGaps)).toBeGreaterThan(8)
   expect(Math.max(...mobileProgramXGaps) - Math.min(...mobileProgramXGaps)).toBeLessThan(1)
+  const mobileProgramLayout = await page.locator('.programs-view').evaluate((view) => {
+    const labels = view.querySelector('.program-similarity-x-labels')!.getBoundingClientRect()
+    const items = [...view.querySelectorAll('.program-similarity-x-labels [role="listitem"]')]
+      .map((item) => item.getBoundingClientRect())
+    const detail = view.querySelector('.analysis-context')!.getBoundingClientRect()
+    return {
+      labelsBottom: labels.bottom,
+      lastItemBottom: Math.max(...items.map((item) => item.bottom)),
+      detailTop: detail.top,
+    }
+  })
+  expect(mobileProgramLayout.lastItemBottom).toBeLessThanOrEqual(mobileProgramLayout.labelsBottom + 1)
+  expect(mobileProgramLayout.detailTop).toBeGreaterThanOrEqual(mobileProgramLayout.labelsBottom)
   await page.locator('.chart-heading').hover()
   await saveScreenshot(page, testInfo, 'atlas-mobile-program-similarity.png')
   await expectChartTooltipContained(page, '.program-chart')

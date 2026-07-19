@@ -17,6 +17,13 @@ type ProgramMode = 'profile' | 'similarity'
 
 const COMPACT_PROGRAM_GRID_TOP = 14
 const COMPACT_PROGRAM_GRID_BOTTOM = 64
+const SIMILARITY_LEGEND_PIECES = [
+  { min: 0.9, label: '0.90–1', color: '#0d675a' },
+  { min: 0.75, max: 0.899999, label: '0.75–0.90', color: '#4a8c7d' },
+  { min: 0.6, max: 0.749999, label: '0.60–0.75', color: '#8bb4a8' },
+  { min: 0.4, max: 0.599999, label: '0.40–0.60', color: '#c9d8d2' },
+  { min: 0, max: 0.399999, label: '<0.40', color: '#eef0ec' },
+]
 
 function programAxisLabel(program: ProgramSummary): string {
   const prefix = program.level === 'Licenciatura' ? 'L' : program.level === 'Maestría' ? 'M' : 'D'
@@ -213,13 +220,7 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
         itemGap: compact ? 4 : 10,
         textGap: compact ? 2 : 5,
         textStyle: { color: '#66716b', fontFamily: 'Manrope Variable', fontSize: compact ? 7 : 10 },
-        pieces: [
-          { min: 0.9, label: '0.90–1', color: '#0d675a' },
-          { min: 0.75, max: 0.899999, label: '0.75–0.90', color: '#4a8c7d' },
-          { min: 0.6, max: 0.749999, label: '0.60–0.75', color: '#8bb4a8' },
-          { min: 0.4, max: 0.599999, label: '0.40–0.60', color: '#c9d8d2' },
-          { min: 0, max: 0.399999, label: '<0.40', color: '#eef0ec' },
-        ],
+        pieces: SIMILARITY_LEGEND_PIECES,
       },
       series: [{
         type: 'heatmap',
@@ -303,6 +304,7 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
       data-compact-grid-top={COMPACT_PROGRAM_GRID_TOP}
       data-compact-grid-bottom={COMPACT_PROGRAM_GRID_BOTTOM}
       data-compact-grid-shared="true"
+      data-compact-similarity-legend="external"
     >
       <div className="analysis-toolbar">
         <div>
@@ -320,7 +322,7 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
       </div>
 
       <div className="analysis-split">
-        <div className="chart-region">
+        <div className="chart-region program-chart-region">
           <div className="chart-heading">
             <div>
               <h3>{mode === 'profile' ? 'Mezcla temática por programa' : 'Afinidad entre programas'}</h3>
@@ -328,6 +330,16 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
             </div>
             <span>Fuente: Repositorio Digital CIDE</span>
           </div>
+          {mode === 'similarity' && (
+            <div className="program-similarity-legend" role="list" aria-label="Escala de similitud">
+              {[...SIMILARITY_LEGEND_PIECES].reverse().map((piece) => (
+                <span key={piece.label} role="listitem">
+                  <i style={{ backgroundColor: piece.color }} aria-hidden="true" />
+                  {piece.label}
+                </span>
+              ))}
+            </div>
+          )}
           <div className="chart-scroll program-chart-frame">
             <EChart
               option={mode === 'profile' ? profileOption : similarityOption}

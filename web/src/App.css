@@ -1142,26 +1142,54 @@
   overflow: hidden;
 }
 
-.program-chart-frame {
-  position: relative;
+.program-chart-region {
   container-type: inline-size;
 }
 
+.program-chart-frame {
+  position: relative;
+}
+
+.program-similarity-legend,
 .program-similarity-x-labels {
   display: none;
 }
 
 @container (max-width: 599px) {
+  .program-similarity-legend {
+    min-height: 18px;
+    margin: 0 8px 4px 76px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 3px 7px;
+    color: #66716b;
+    font-family: 'Manrope Variable', sans-serif;
+    font-size: 6.5px;
+    line-height: 1;
+  }
+
+  .program-similarity-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    white-space: nowrap;
+  }
+
+  .program-similarity-legend i {
+    width: 10px;
+    height: 8px;
+    display: block;
+    border: 1px solid rgba(17, 24, 21, 0.06);
+  }
+
   .program-similarity-x-labels {
-    position: absolute;
-    right: 8px;
-    bottom: 3px;
-    left: 76px;
-    height: 58px;
+    height: 170px;
+    margin: -61px 8px 0 76px;
     display: grid;
     grid-template-columns: repeat(21, minmax(0, 1fr));
     align-items: start;
-    overflow: hidden;
     pointer-events: none;
   }
 
