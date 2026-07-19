@@ -811,8 +811,11 @@ test('mobile atlas reflows without document overflow or control collisions', asy
   await page.getByRole('button', { name: 'Similitud' }).click()
   await expectCanvasHasContent(page.locator('.program-chart canvas').last())
   await expectPlotFitsViewport(page, '.program-chart')
-  await expectChartTooltipContained(page, '.program-chart')
+  await expect(page.locator('.programs-view')).toHaveAttribute('data-similarity-x-label-count', '21')
+  await expect(page.locator('.programs-view')).toHaveAttribute('data-similarity-x-label-strategy', 'all-vertical')
+  await page.locator('.chart-heading').hover()
   await saveScreenshot(page, testInfo, 'atlas-mobile-program-similarity.png')
+  await expectChartTooltipContained(page, '.program-chart')
 
   await page.getByRole('button', { name: 'Temas', exact: true }).click()
   await expectCanvasHasContent(page.locator('.topic-chart canvas').last())

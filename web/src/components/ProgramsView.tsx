@@ -157,7 +157,7 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
         left: gridLeft,
         right: compact ? 8 : 30,
         top: compact ? 40 : 48,
-        bottom: compact ? 112 : 155,
+        bottom: compact ? 166 : 155,
       },
       tooltip: {
         backgroundColor: '#111815',
@@ -175,13 +175,13 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
         axisLine: { show: false },
         axisTick: { show: false },
         axisLabel: {
-          rotate: compact ? 65 : 58,
+          rotate: compact ? 90 : 58,
           color: '#4e5953',
           fontFamily: 'Manrope Variable',
           fontSize: compact ? 6.5 : 9,
-          interval: 0,
+          interval: compact ? () => true : 0,
           hideOverlap: false,
-          margin: compact ? 5 : 8,
+          margin: compact ? 4 : 8,
         },
       },
       yAxis: {
@@ -291,7 +291,11 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
   }
 
   return (
-    <section className="analysis-view programs-view">
+    <section
+      className="analysis-view programs-view"
+      data-similarity-x-label-count={mode === 'similarity' ? programLabels.length : undefined}
+      data-similarity-x-label-strategy={mode === 'similarity' ? 'all-vertical' : undefined}
+    >
       <div className="analysis-toolbar">
         <div>
           <span className="eyebrow">21 programas · 20 territorios</span>
