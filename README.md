@@ -30,7 +30,7 @@ El proyecto cosecha, normaliza y analiza la producción de tesis del CIDE como u
 
 | Vista | Pregunta que ayuda a responder |
 | --- | --- |
-| **Mapa 2D y 3D** | ¿Qué tesis tratan asuntos parecidos, incluso si pertenecen a programas o idiomas distintos? |
+| **Mapa 2D y 3D** | ¿Qué tesis tratan asuntos parecidos, incluso si pertenecen a programas o idiomas distintos? Incluye paneo, órbita y zoom de cámara. |
 | **Tiempo** | ¿Cuándo aparecen las comunidades temáticas y cómo crece el corpus año con año? |
 | **Programas** | ¿Qué mezcla temática caracteriza a cada programa y cuáles tienen perfiles más cercanos? |
 | **Temas** | ¿Qué comunidades son más recientes, voluminosas o interdisciplinarias? |

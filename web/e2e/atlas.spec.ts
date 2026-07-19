@@ -133,6 +133,17 @@ async function readCameraState(page: Page): Promise<CameraState> {
   }))
 }
 
+async function readFitCameraState(page: Page): Promise<CameraState> {
+  return activeSemanticMap(page).evaluate((element) => ({
+    zoom: (element as HTMLElement).dataset.fitZoom,
+    targetX: (element as HTMLElement).dataset.fitTargetX,
+    targetY: (element as HTMLElement).dataset.fitTargetY,
+    targetZ: (element as HTMLElement).dataset.fitTargetZ,
+    rotationOrbit: (element as HTMLElement).dataset.fitRotationOrbit,
+    rotationX: (element as HTMLElement).dataset.fitRotationX,
+  }))
+}
+
 async function expectClusterVisibilityPreservesCamera(page: Page, token: string) {
   const canvas = activeSemanticCanvas(page)
   const initialCamera = await readCameraState(page)
@@ -151,7 +162,14 @@ async function expectClusterVisibilityPreservesCamera(page: Page, token: string)
 
   const canvasBox = await canvas.boundingBox()
   expect(canvasBox).not.toBeNull()
-  await page.mouse.click(canvasBox!.x + canvasBox!.width / 2, canvasBox!.y + 24)
+  for (const [xShare, yShare] of [[0.04, 0.5], [0.96, 0.5], [0.5, 0.05], [0.5, 0.78]]) {
+    await page.mouse.click(
+      canvasBox!.x + canvasBox!.width * xShare,
+      canvasBox!.y + canvasBox!.height * yShare,
+    )
+    await page.waitForTimeout(80)
+    if (await activeSemanticMap(page).getAttribute('data-point-count') === '2388') break
+  }
   await expect(activeSemanticMap(page)).toHaveAttribute('data-point-count', '2388')
   await expect(canvas).toHaveAttribute('data-camera-token', token)
   await expect.poll(() => readCameraState(page)).toEqual(movedCamera)
@@ -357,10 +375,13 @@ test('desktop atlas renders every analytical surface and animation control', asy
   await saveScreenshot(page, testInfo, 'atlas-edge-tooltip.png')
 
   await activeSemanticCanvas(page).hover()
+  const initial2dCamera = await readFitCameraState(page)
   await page.mouse.wheel(0, -650)
+  await expect.poll(async () => (await readCameraState(page)).zoom).not.toBe(initial2dCamera.zoom)
   await page.waitForTimeout(450)
   await saveScreenshot(page, testInfo, 'atlas-desktop-2d-close.png')
-  await page.reload()
+  await page.getByRole('button', { name: 'Volver a la vista inicial' }).click()
+  await expect.poll(() => readCameraState(page)).toEqual(initial2dCamera)
   await expectCanvasHasContent(activeSemanticCanvas(page))
 
   await expectClusterVisibilityPreservesCamera(page, 'map-2d-camera')
@@ -369,6 +390,53 @@ test('desktop atlas renders every analytical surface and animation control', asy
 
   await page.getByRole('button', { name: '3D', exact: true }).click()
   await expect(activeSemanticMap(page)).toHaveAttribute('data-thesis-sphere-scale', '0.048')
+  const rotateCamera = page.getByRole('button', { name: 'Girar cámara' })
+  const moveCamera = page.getByRole('button', { name: 'Mover cámara' })
+  await expect(rotateCamera).toHaveAttribute('aria-pressed', 'true')
+  await expect(moveCamera).toHaveAttribute('aria-pressed', 'false')
+  const cameraBeforePan = await readCameraState(page)
+  await moveCamera.click()
+  await expect(activeSemanticMap(page)).toHaveAttribute('data-camera-drag-mode', 'pan')
+  await expect(page.locator('.preserved-view.is-active .map-mode-hint')).toContainText('Arrastra para mover')
+  await expect.poll(() => readCameraState(page)).toEqual(cameraBeforePan)
+  const panCanvas = activeSemanticCanvas(page)
+  const panBounds = await panCanvas.boundingBox()
+  expect(panBounds).not.toBeNull()
+  const panStart = {
+    x: panBounds!.x + panBounds!.width * 0.54,
+    y: panBounds!.y + panBounds!.height * 0.48,
+  }
+  await page.mouse.move(panStart.x, panStart.y)
+  await page.mouse.down()
+  await page.mouse.move(panStart.x + 92, panStart.y + 46, { steps: 8 })
+  await page.mouse.up()
+  const initialTarget = [cameraBeforePan.targetX, cameraBeforePan.targetY, cameraBeforePan.targetZ].join('|')
+  await expect.poll(async () => {
+    const camera = await readCameraState(page)
+    return [camera.targetX, camera.targetY, camera.targetZ].join('|')
+  }).not.toBe(initialTarget)
+  const cameraAfterPan = await readCameraState(page)
+  expect(cameraAfterPan.rotationOrbit).toBe(cameraBeforePan.rotationOrbit)
+  expect(cameraAfterPan.rotationX).toBe(cameraBeforePan.rotationX)
+  await rotateCamera.click()
+  await expect(activeSemanticMap(page)).toHaveAttribute('data-camera-drag-mode', 'rotate')
+  await expect.poll(() => readCameraState(page)).toEqual(cameraAfterPan)
+  const rotationBeforeDrag = [cameraAfterPan.rotationOrbit, cameraAfterPan.rotationX].join('|')
+  await page.mouse.move(panStart.x, panStart.y)
+  await page.mouse.down()
+  await page.mouse.move(panStart.x - 74, panStart.y + 38, { steps: 8 })
+  await page.mouse.up()
+  await expect.poll(async () => {
+    const camera = await readCameraState(page)
+    return [camera.rotationOrbit, camera.rotationX].join('|')
+  }).not.toBe(rotationBeforeDrag)
+  const cameraAfterRotation = await readCameraState(page)
+  expect(cameraAfterRotation.targetX).toBe(cameraAfterPan.targetX)
+  expect(cameraAfterRotation.targetY).toBe(cameraAfterPan.targetY)
+  expect(cameraAfterRotation.targetZ).toBe(cameraAfterPan.targetZ)
+  const initial3dCamera = await readFitCameraState(page)
+  await page.getByRole('button', { name: 'Volver a la vista inicial' }).click()
+  await expect.poll(() => readCameraState(page)).toEqual(initial3dCamera)
   await expectCanvasHasContent(activeSemanticCanvas(page))
   await saveScreenshot(page, testInfo, 'atlas-desktop-3d.png')
   await expectFilterTogglePreservesMap(page, 'map-3d-filter')
@@ -488,6 +556,42 @@ test('mobile atlas reflows without document overflow or control collisions', asy
   await expectNoDocumentOverflow(page)
   await expectFilterTogglePreservesMap(page, 'mobile-map-filter')
   await expectNoDocumentOverflow(page)
+
+  await page.getByRole('button', { name: '3D', exact: true }).click()
+  const mobileCameraModes = page.getByRole('group', { name: 'Interacción de cámara 3D' })
+  const mobileReset = page.getByRole('button', { name: 'Volver a la vista inicial' })
+  await expect(mobileCameraModes).toBeVisible()
+  await expect(mobileReset).toBeVisible()
+  const mobileModeBounds = await mobileCameraModes.boundingBox()
+  const mobileResetBounds = await mobileReset.boundingBox()
+  expect(mobileModeBounds).not.toBeNull()
+  expect(mobileResetBounds).not.toBeNull()
+  expect(mobileModeBounds!.y).toBeGreaterThanOrEqual(mobileResetBounds!.y + mobileResetBounds!.height + 6)
+  const mobileInitial3dCamera = await readFitCameraState(page)
+  await page.getByRole('button', { name: 'Mover cámara' }).click()
+  const mobileCanvas = activeSemanticCanvas(page)
+  const mobileCanvasBounds = await mobileCanvas.boundingBox()
+  expect(mobileCanvasBounds).not.toBeNull()
+  const mobilePanStart = {
+    x: mobileCanvasBounds!.x + mobileCanvasBounds!.width * 0.5,
+    y: mobileCanvasBounds!.y + mobileCanvasBounds!.height * 0.5,
+  }
+  await page.mouse.move(mobilePanStart.x, mobilePanStart.y)
+  await page.mouse.down()
+  await page.mouse.move(mobilePanStart.x + 48, mobilePanStart.y + 32, { steps: 6 })
+  await page.mouse.up()
+  const mobileInitialTarget = [
+    mobileInitial3dCamera.targetX,
+    mobileInitial3dCamera.targetY,
+    mobileInitial3dCamera.targetZ,
+  ].join('|')
+  await expect.poll(async () => {
+    const camera = await readCameraState(page)
+    return [camera.targetX, camera.targetY, camera.targetZ].join('|')
+  }).not.toBe(mobileInitialTarget)
+  await mobileReset.click()
+  await expect.poll(() => readCameraState(page)).toEqual(mobileInitial3dCamera)
+  await page.getByRole('button', { name: '2D', exact: true }).click()
 
   const navigation = await page.locator('.side-navigation').boundingBox()
   const stage = await activeMapStage(page).boundingBox()

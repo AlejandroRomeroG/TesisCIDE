@@ -1,5 +1,6 @@
 export type ViewId = 'map' | 'time' | 'programs' | 'topics' | 'faculty' | 'methodology'
 export type MapMode = '2d' | '3d'
+export type CameraDragMode = 'rotate' | 'pan'
 
 export interface ThesisPoint {
   id: string

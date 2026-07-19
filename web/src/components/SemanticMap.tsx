@@ -11,8 +11,8 @@ import {
 import { LineLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers'
 import { SimpleMeshLayer } from '@deck.gl/mesh-layers'
 import { SphereGeometry } from '@luma.gl/engine'
-import { LocateFixed } from 'lucide-react'
-import type { ClusterSummary, MapMode, ThesisPoint } from '../types'
+import { Move3d, Orbit, RotateCcw } from 'lucide-react'
+import type { CameraDragMode, ClusterSummary, MapMode, ThesisPoint } from '../types'
 import { clusterColorRgb } from '../lib/colors'
 
 interface SemanticMapProps {
@@ -21,10 +21,12 @@ interface SemanticMapProps {
   highlightedIds?: ReadonlySet<string> | null
   clusters: ClusterSummary[]
   mode: MapMode
+  cameraDragMode: CameraDragMode
   selectedId: string | null
   selectedClusterId?: number | null
   yearCutoff?: number | null
   onSelect: (point: ThesisPoint | null) => void
+  onCameraDragModeChange: (mode: CameraDragMode) => void
   onClusterSelect?: (clusterId: number | null) => void
   ariaLabel: string
 }
@@ -80,6 +82,11 @@ interface CameraViewState {
   zoom?: number
   rotationOrbit?: number
   rotationX?: number
+}
+
+interface StoredCameraState {
+  key: string
+  state: CameraViewState
 }
 
 function isClusterSummary(object: MapObject): object is ClusterSummary {
@@ -261,14 +268,16 @@ export function SemanticMap({
   highlightedIds = null,
   clusters,
   mode,
+  cameraDragMode,
   selectedId,
   selectedClusterId = null,
   yearCutoff = null,
   onSelect,
+  onCameraDragModeChange,
   onClusterSelect,
   ariaLabel,
 }: SemanticMapProps) {
-  const [resetVersion, setResetVersion] = useState(0)
+  const [storedCamera, setStoredCamera] = useState<StoredCameraState | null>(null)
   const mapRef = useRef<HTMLDivElement>(null)
   const deckRef = useRef<DeckGLRef>(null)
   const pointerStartRef = useRef<[number, number] | null>(null)
@@ -308,7 +317,7 @@ export function SemanticMap({
     fitBounds.minZ,
     fitBounds.maxZ,
   ].map((value) => value.toFixed(6)).join('-')
-  const fitRequestKey = `${mode}-${resetVersion}-${fitKey}-${timelineVisible ? 'timeline' : 'map'}-${fitSizeVersion}`
+  const fitRequestKey = `${mode}-${fitKey}-${timelineVisible ? 'timeline' : 'map'}-${fitSizeVersion}`
   if (fitCacheRef.current?.key !== fitRequestKey) {
     fitCacheRef.current = {
       key: fitRequestKey,
@@ -527,11 +536,19 @@ export function SemanticMap({
   const view = useMemo(
     () => mode === '2d'
       ? new OrthographicView({ id: 'semantic-2d', controller: true, flipY: false })
-      : new OrbitView({ id: 'semantic-3d', controller: true, orbitAxis: 'Z' }),
-    [mode],
+      : new OrbitView({
+          id: 'semantic-3d',
+          controller: {
+            dragMode: cameraDragMode,
+            dragPan: true,
+            dragRotate: true,
+          },
+          orbitAxis: 'Z',
+        }),
+    [cameraDragMode, mode],
   )
 
-  const initialViewState = useMemo(
+  const fitCameraState = useMemo<CameraViewState>(
     () => mode === '2d'
       ? fitState
       : {
@@ -543,6 +560,7 @@ export function SemanticMap({
         },
     [fitState, mode],
   )
+  const cameraViewState = storedCamera?.key === fitRequestKey ? storedCamera.state : fitCameraState
 
   function handleClick(info: PickingInfo<MapObject>) {
     if (!info.object) {
@@ -581,19 +599,13 @@ export function SemanticMap({
     })
   }
 
-  function recordCameraState(viewState: CameraViewState) {
-    const element = mapRef.current
-    if (!element || !viewState.target || typeof viewState.zoom !== 'number') return
-    element.dataset.cameraZoom = viewState.zoom.toFixed(4)
-    element.dataset.cameraTargetX = viewState.target[0].toFixed(4)
-    element.dataset.cameraTargetY = viewState.target[1].toFixed(4)
-    element.dataset.cameraTargetZ = (viewState.target[2] ?? 0).toFixed(4)
-    if (typeof viewState.rotationOrbit === 'number') {
-      element.dataset.cameraRotationOrbit = viewState.rotationOrbit.toFixed(4)
-    }
-    if (typeof viewState.rotationX === 'number') {
-      element.dataset.cameraRotationX = viewState.rotationX.toFixed(4)
-    }
+  function updateCameraState(viewState: CameraViewState) {
+    if (!viewState.target || typeof viewState.zoom !== 'number') return
+    setStoredCamera({ key: fitRequestKey, state: viewState })
+  }
+
+  function resetCamera() {
+    setStoredCamera({ key: fitRequestKey, state: fitCameraState })
   }
 
   return (
@@ -605,12 +617,16 @@ export function SemanticMap({
       data-fit-zoom={fitState.zoom.toFixed(4)}
       data-fit-target-x={fitState.target[0].toFixed(4)}
       data-fit-target-y={fitState.target[1].toFixed(4)}
-      data-camera-zoom={fitState.zoom.toFixed(4)}
-      data-camera-target-x={fitState.target[0].toFixed(4)}
-      data-camera-target-y={fitState.target[1].toFixed(4)}
-      data-camera-target-z={fitState.target[2].toFixed(4)}
-      data-camera-rotation-orbit={mode === '3d' ? ROTATION_ORBIT.toFixed(4) : undefined}
-      data-camera-rotation-x={mode === '3d' ? ROTATION_X.toFixed(4) : undefined}
+      data-fit-target-z={fitState.target[2].toFixed(4)}
+      data-fit-rotation-orbit={mode === '3d' ? ROTATION_ORBIT.toFixed(4) : undefined}
+      data-fit-rotation-x={mode === '3d' ? ROTATION_X.toFixed(4) : undefined}
+      data-camera-zoom={cameraViewState.zoom?.toFixed(4)}
+      data-camera-target-x={cameraViewState.target?.[0].toFixed(4)}
+      data-camera-target-y={cameraViewState.target?.[1].toFixed(4)}
+      data-camera-target-z={(cameraViewState.target?.[2] ?? 0).toFixed(4)}
+      data-camera-rotation-orbit={cameraViewState.rotationOrbit?.toFixed(4)}
+      data-camera-rotation-x={cameraViewState.rotationX?.toFixed(4)}
+      data-camera-drag-mode={mode === '3d' ? cameraDragMode : undefined}
       data-point-count={points.length}
       data-highlight-count={highlightedIds?.size ?? points.length}
       data-thesis-sphere-scale={mode === '3d' ? THESIS_SPHERE_SCALE : undefined}
@@ -619,12 +635,11 @@ export function SemanticMap({
     >
       <DeckGL
         ref={deckRef}
-        key={fitRequestKey}
         views={view}
-        initialViewState={initialViewState}
+        viewState={cameraViewState}
         layers={layers}
         onClick={handleClick}
-        onViewStateChange={({ viewState }) => recordCameraState(viewState as CameraViewState)}
+        onViewStateChange={({ viewState }) => updateCameraState(viewState as CameraViewState)}
         getTooltip={({ object, x, y }: PickingInfo<MapObject>) => {
           if (!object) return null
           if (isClusterSummary(object)) {
@@ -663,12 +678,34 @@ export function SemanticMap({
       <button
         className="map-reset icon-button"
         type="button"
-        aria-label="Restablecer encuadre"
-        data-tooltip="Restablecer encuadre"
-        onClick={() => setResetVersion((value) => value + 1)}
+        aria-label="Volver a la vista inicial"
+        data-tooltip="Vista inicial"
+        onClick={resetCamera}
       >
-        <LocateFixed size={18} aria-hidden="true" />
+        <RotateCcw size={18} aria-hidden="true" />
       </button>
+      {mode === '3d' && (
+        <div className="map-camera-modes" role="group" aria-label="Interacción de cámara 3D">
+          <button
+            type="button"
+            aria-label="Girar cámara"
+            aria-pressed={cameraDragMode === 'rotate'}
+            data-tooltip="Girar cámara"
+            onClick={() => onCameraDragModeChange('rotate')}
+          >
+            <Orbit size={17} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            aria-label="Mover cámara"
+            aria-pressed={cameraDragMode === 'pan'}
+            data-tooltip="Mover cámara"
+            onClick={() => onCameraDragModeChange('pan')}
+          >
+            <Move3d size={17} aria-hidden="true" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }

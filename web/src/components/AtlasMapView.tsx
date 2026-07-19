@@ -13,6 +13,7 @@ import {
 import type {
   AnalyticsPayload,
   AtlasFilters,
+  CameraDragMode,
   MapMode,
   ThesisDetails,
   ThesisPoint,
@@ -57,6 +58,7 @@ export function AtlasMapView({
   timelineMode = false,
 }: AtlasMapViewProps) {
   const [mode, setMode] = useState<MapMode>('2d')
+  const [cameraDragMode, setCameraDragMode] = useState<CameraDragMode>('rotate')
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [year, setYear] = useState(analytics.meta.yearMax)
   const [playing, setPlaying] = useState(false)
@@ -323,10 +325,12 @@ export function AtlasMapView({
               highlightedIds={displayedMatchIds}
               clusters={analytics.clusters}
               mode={mode}
+              cameraDragMode={cameraDragMode}
               selectedId={selected?.id ?? null}
               selectedClusterId={filters.clusterId}
               yearCutoff={timelineMode ? year : null}
               onSelect={onSelect}
+              onCameraDragModeChange={setCameraDragMode}
               onClusterSelect={(clusterId) => updateFilter('clusterId', clusterId)}
               ariaLabel={displayedMatchIds === null
                 ? `${formatNumber(displayedPoints.length)} tesis visibles en mapa semántico ${mode.toUpperCase()}`
@@ -343,7 +347,9 @@ export function AtlasMapView({
           </div>
 
           <div className="map-mode-hint">
-            {mode === '2d' ? 'Arrastra para mover · rueda para acercar' : 'Arrastra para orbitar · rueda para acercar'}
+            {mode === '2d' || cameraDragMode === 'pan'
+              ? 'Arrastra para mover · rueda para acercar'
+              : 'Arrastra para orbitar · rueda para acercar'}
           </div>
 
           {timelineMode && (
