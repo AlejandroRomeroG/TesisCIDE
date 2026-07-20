@@ -45,6 +45,8 @@ const ROTATION_X = 27
 const MOBILE_BREAKPOINT = 640
 const MOBILE_ZOOM_SCALE = 1.5
 const MOBILE_TIMELINE_3D_ADDITIONAL_ZOOM_SCALE = 1.5
+const TWO_D_ZOOM_SCALE = 1.25
+const MOBILE_TIMELINE_2D_ZOOM_SCALE = MOBILE_ZOOM_SCALE + 0.25
 const DESKTOP_3D_ZOOM_SCALE = 1.75
 const DESKTOP_3D_VERTICAL_POSITION_SCALE = 1.2
 const MOBILE_TIMELINE_VERTICAL_SHIFT_SCALE = 1.5
@@ -277,11 +279,13 @@ function fitView(bounds: MapBounds, size: MapSize, mode: MapMode, timelineVisibl
   }
 
   const compact = size.width < MOBILE_BREAKPOINT
-  const requestedZoomScale = compact
-    ? timelineVisible && mode === '3d'
-      ? MOBILE_ZOOM_SCALE * MOBILE_TIMELINE_3D_ADDITIONAL_ZOOM_SCALE
-      : timelineVisible || mode === '3d' ? MOBILE_ZOOM_SCALE : 1
-    : mode === '3d' ? DESKTOP_3D_ZOOM_SCALE : 1
+  const requestedZoomScale = mode === '2d'
+    ? compact && timelineVisible ? MOBILE_TIMELINE_2D_ZOOM_SCALE : TWO_D_ZOOM_SCALE
+    : compact
+      ? timelineVisible
+        ? MOBILE_ZOOM_SCALE * MOBILE_TIMELINE_3D_ADDITIONAL_ZOOM_SCALE
+        : MOBILE_ZOOM_SCALE
+      : DESKTOP_3D_ZOOM_SCALE
   const baseZoom = Math.max(-1, Math.min(9.2, low - 0.08))
   const zoom = Math.max(-1, Math.min(9.2, baseZoom + Math.log2(requestedZoomScale)))
   const zoomScale = 2 ** (zoom - baseZoom)

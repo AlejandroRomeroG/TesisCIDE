@@ -379,6 +379,13 @@ test('desktop atlas renders every analytical surface and animation control', asy
   })
   expect(favicon).toEqual([{ label: 'AT', size: '15' }, { label: 'CIDE', size: '15' }])
   await expectCanvasHasContent(activeSemanticCanvas(page))
+  await expectFitProfile(page, {
+    viewport: 'desktop',
+    context: 'map',
+    zoomScale: '1.250',
+    verticalOffset: '0.0',
+    verticalPositionScale: '1.000',
+  })
   await expectNoDocumentOverflow(page)
   await saveScreenshot(page, testInfo, 'atlas-desktop-map.png')
   await expectFilterTogglePreservesMap(page, 'map-2d-filter')
@@ -556,6 +563,14 @@ test('desktop atlas renders every analytical surface and animation control', asy
   await expectFilterTogglePreservesMap(page, 'time-3d-filter')
   await expectClusterVisibilityPreservesCamera(page, 'time-3d-camera')
   await page.getByRole('button', { name: '2D', exact: true }).click()
+  await expectFitProfile(page, {
+    viewport: 'desktop',
+    context: 'timeline',
+    zoomScale: '1.250',
+    verticalOffset: '0.0',
+    verticalPositionScale: '1.000',
+  })
+  await saveScreenshot(page, testInfo, 'atlas-desktop-time-2d.png')
   await expectFilterTogglePreservesMap(page, 'time-2d-filter')
   await expectClusterVisibilityPreservesCamera(page, 'time-2d-camera')
   const year = page.locator('.timeline-year strong')
@@ -718,6 +733,13 @@ test('mobile atlas reflows without document overflow or control collisions', asy
 
   await expect(page.getByRole('heading', { name: 'Mapa semántico', exact: true })).toBeVisible()
   await expectCanvasHasContent(activeSemanticCanvas(page))
+  await expectFitProfile(page, {
+    viewport: 'mobile',
+    context: 'map',
+    zoomScale: '1.250',
+    verticalOffset: '0.0',
+    verticalPositionScale: '1.000',
+  })
   await expectNoDocumentOverflow(page)
   await expectFilterTogglePreservesMap(page, 'mobile-map-filter')
   await expectNoDocumentOverflow(page)
@@ -765,6 +787,13 @@ test('mobile atlas reflows without document overflow or control collisions', asy
   await expect.poll(() => readCameraState(page)).toEqual(mobileInitial3dCamera)
   await saveScreenshot(page, testInfo, 'atlas-mobile-map-3d.png')
   await page.getByRole('button', { name: '2D', exact: true }).click()
+  await expectFitProfile(page, {
+    viewport: 'mobile',
+    context: 'map',
+    zoomScale: '1.250',
+    verticalOffset: '0.0',
+    verticalPositionScale: '1.000',
+  })
 
   const navigation = await page.locator('.side-navigation').boundingBox()
   const stage = await activeMapStage(page).boundingBox()
@@ -777,7 +806,7 @@ test('mobile atlas reflows without document overflow or control collisions', asy
   await expectFitProfile(page, {
     viewport: 'mobile',
     context: 'timeline',
-    zoomScale: '1.500',
+    zoomScale: '1.750',
     verticalOffset: '36.0',
     verticalPositionScale: '1.500',
   })
