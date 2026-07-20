@@ -348,7 +348,7 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
     if (!value) return
     setSelectedName(value[3])
     setSelectedClusterId(null)
-    setSelectedComparisonName(value[3] === value[4] ? null : value[4])
+    setSelectedComparisonName(value[4])
   }
 
   function toggleSimilarityLegendPiece(index: number) {
@@ -398,19 +398,22 @@ export function ProgramsView({ analytics }: ProgramsViewProps) {
               {SIMILARITY_LEGEND_PIECES
                 .map((piece, index) => ({ piece, index }))
                 .reverse()
-                .map(({ piece, index }) => (
-                  <span key={piece.label} role="listitem">
-                    <button
-                      type="button"
-                      aria-label={`${similarityLegendSelection[String(index)] ? 'Ocultar' : 'Mostrar'} similitudes ${piece.label}`}
-                      aria-pressed={similarityLegendSelection[String(index)]}
-                      onClick={() => toggleSimilarityLegendPiece(index)}
-                    >
-                      <i style={{ backgroundColor: piece.color }} aria-hidden="true" />
-                      {piece.label}
-                    </button>
-                  </span>
-                ))}
+                .map(({ piece, index }) => {
+                  const active = similarityLegendSelection[String(index)]
+                  return (
+                    <span key={piece.label} role="listitem">
+                      <button
+                        type="button"
+                        aria-label={`${active ? 'Ocultar' : 'Mostrar'} similitudes ${piece.label}`}
+                        aria-pressed={active}
+                        onClick={() => toggleSimilarityLegendPiece(index)}
+                      >
+                        <i style={{ backgroundColor: active ? piece.color : 'transparent' }} aria-hidden="true" />
+                        {piece.label}
+                      </button>
+                    </span>
+                  )
+                })}
             </div>
           )}
           <div className="chart-scroll program-chart-frame">

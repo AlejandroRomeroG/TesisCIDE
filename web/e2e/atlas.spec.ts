@@ -470,7 +470,7 @@ test('desktop atlas renders every analytical surface and animation control', asy
     context: 'map',
     zoomScale: '1.750',
     verticalOffset: /^[1-9]\d*\.\d$/,
-    verticalPositionScale: '1.100',
+    verticalPositionScale: '1.200',
   })
   const rotateCamera = page.getByRole('button', { name: 'Girar cámara' })
   const moveCamera = page.getByRole('button', { name: 'Mover cámara' })
@@ -551,7 +551,7 @@ test('desktop atlas renders every analytical surface and animation control', asy
     context: 'timeline',
     zoomScale: '1.750',
     verticalOffset: /^[1-9]\d*\.\d$/,
-    verticalPositionScale: '1.100',
+    verticalPositionScale: '1.200',
   })
   await expectFilterTogglePreservesMap(page, 'time-3d-filter')
   await expectClusterVisibilityPreservesCamera(page, 'time-3d-camera')
@@ -586,6 +586,16 @@ test('desktop atlas renders every analytical surface and animation control', asy
   await page.getByRole('button', { name: 'Similitud' }).click()
   await expectCanvasHasContent(page.locator('.program-chart canvas').last())
   await expectChartTooltipContained(page, '.program-chart')
+  await clickProgramHeatmapCell(page, 'similarity', 9, 10)
+  await expect(page.locator('.analysis-context')).toHaveAttribute(
+    'data-selected-program',
+    'Maestría en Métodos para el Análisis de Políticas Públicas',
+  )
+  await expect(page.locator('.analysis-context')).toHaveAttribute(
+    'data-selected-comparison',
+    'Maestría en Métodos para el Análisis de Políticas Públicas',
+  )
+  await saveScreenshot(page, testInfo, 'atlas-desktop-program-similarity-diagonal.png')
   await clickProgramHeatmapCell(page, 'similarity', 1, 10)
   await expect(page.locator('.analysis-context')).toHaveAttribute(
     'data-selected-program',
@@ -841,11 +851,20 @@ test('mobile atlas reflows without document overflow or control collisions', asy
   const similarityCanvasBeforeToggle = await similarityCanvas.screenshot()
   await mobileSimilarityLegendButtons.first().click()
   await expect(mobileSimilarityLegendButtons.first()).toHaveAttribute('aria-pressed', 'false')
+  await expect(mobileSimilarityLegendButtons.first().locator('i')).toHaveCSS(
+    'background-color',
+    'rgba(0, 0, 0, 0)',
+  )
   await expect(page.locator('.programs-view')).toHaveAttribute('data-active-similarity-ranges', '4')
   await page.waitForTimeout(480)
   const similarityCanvasAfterToggle = await similarityCanvas.screenshot()
   expect(similarityCanvasAfterToggle.equals(similarityCanvasBeforeToggle)).toBe(false)
+  await saveScreenshot(page, testInfo, 'atlas-mobile-program-similarity-legend-muted.png')
   await mobileSimilarityLegendButtons.first().click()
+  await expect(mobileSimilarityLegendButtons.first().locator('i')).not.toHaveCSS(
+    'background-color',
+    'rgba(0, 0, 0, 0)',
+  )
   await expect(page.locator('.programs-view')).toHaveAttribute('data-active-similarity-ranges', '5')
   const mobileProgramXLabels = page.getByRole('list', { name: 'Programas del eje X' })
   await expect(mobileProgramXLabels).toBeVisible()

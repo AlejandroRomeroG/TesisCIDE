@@ -1190,7 +1190,7 @@
   }
 
   .program-similarity-legend button[aria-pressed='false'] {
-    opacity: 0.34;
+    color: #9aa29d;
   }
 
   .program-similarity-legend button:focus-visible {
@@ -1211,6 +1211,11 @@
     height: 8px;
     display: block;
     border: 1px solid rgba(17, 24, 21, 0.06);
+    transition: background-color 140ms ease, border-color 140ms ease;
+  }
+
+  .program-similarity-legend button[aria-pressed='false'] i {
+    border-color: #cbd4ce;
   }
 
   .program-similarity-x-labels {
